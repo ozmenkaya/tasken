@@ -627,19 +627,22 @@ def create_task():
             
             print(f"✅ Task created successfully: {task.title}")
             
-            # Acil görevler için mail gönder
-            if priority == 'urgent':
-                try:
-                    send_urgent_task_email(task, assignees)
-                    flash(f'🚨 Acil görev oluşturuldu ve {len(assigned_to_list)} kişiye mail gönderildi!')
-                except Exception as mail_error:
-                    print(f"⚠️ Mail sending error: {mail_error}")
-                    flash(f'⚠️ Görev oluşturuldu ama mail gönderilemedi. {len(assigned_to_list)} kişiye atandı.')
-            else:
-                if len(assigned_to_list) == 1:
-                    flash('Görev başarıyla oluşturuldu!')
+            # Tüm görevler için mail gönder
+            try:
+                mail_sent = send_task_assignment_email(task, assignees)
+                if mail_sent:
+                    if len(assigned_to_list) == 1:
+                        flash('Görev başarıyla oluşturuldu ve mail gönderildi!')
+                    else:
+                        flash(f'Görev başarıyla oluşturuldu ve {len(assigned_to_list)} kişiye mail gönderildi!')
                 else:
-                    flash(f'Görev başarıyla oluşturuldu ve {len(assigned_to_list)} kişiye atandı!')
+                    if len(assigned_to_list) == 1:
+                        flash('Görev başarıyla oluşturuldu!')
+                    else:
+                        flash(f'Görev başarıyla oluşturuldu ve {len(assigned_to_list)} kişiye atandı!')
+            except Exception as mail_error:
+                print(f"⚠️ Mail sending error: {mail_error}")
+                flash(f'⚠️ Görev oluşturuldu ama mail gönderilemedi. {len(assigned_to_list)} kişiye atandı.')
             
             return redirect(url_for('index'))
             
@@ -1180,6 +1183,87 @@ def send_urgent_task_email(task, assignees):
         import traceback
         traceback.print_exc()
         return False
+        return False
+
+
+def send_task_assignment_email(task, assignees):
+    """Yeni görev atandığında mail gönderir"""
+    try:
+        # Development ortamında mail konfigürasyonu yoksa simüle et
+        if not app.config.get('MAIL_USERNAME'):
+            print(f"📧 GÖREV ATAMA MAİLİ (SİMÜLE EDİLDİ):")
+            print(f"Görev: {task.title}")
+            print(f"Alıcılar: {[assignee.email or assignee.username for assignee in assignees]}")
+            return True
+        
+        # Öncelik renklerini belirle
+        priority_colors = {
+            "urgent": "#dc3545",
+            "high": "#fd7e14", 
+            "normal": "#0d6efd",
+            "low": "#6c757d"
+        }
+        
+        priority_labels = {
+            "urgent": "ACİL",
+            "high": "Yüksek",
+            "normal": "Normal",
+            "low": "Düşük"
+        }
+        
+        priority_color = priority_colors.get(task.priority, "#0d6efd")
+        priority_label = priority_labels.get(task.priority, "Normal")
+        
+        mail_sent_count = 0    
+        # Her atanan kullanıcıya ayrı mail gönder
+        for assignee in assignees:
+            if assignee.email:  # Email adresi varsa
+                print(f"📧 Mail gönderiliyor: {assignee.email}")
+                
+                # Başlık önceliğe göre değişir
+                subject_prefix = "🚨 ACİL GÖREV" if task.priority == "urgent" else "📋 Yeni Görev"
+                
+                msg = Message(
+                    subject=f"{subject_prefix}: {task.title}",
+                    recipients=[assignee.email],
+                    html=f'''
+                    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                        <div style="background-color: {priority_color}; color: white; padding: 20px; text-align: center;">
+                            <h1>📋 Size Yeni Görev Atandı</h1>
+                        </div>
+                        <div style="padding: 20px; background-color: #f8f9fa;">
+                            <h2>{task.title}</h2>
+                            <p><strong>Açıklama:</strong></p>
+                            <div style="background-color: white; padding: 15px; border-left: 4px solid {priority_color}; margin: 10px 0;">
+                                {task.description.replace(chr(10), "<br>") if task.description else "Açıklama yok"}
+                            </div>
+                            <p><strong>Öncelik:</strong> <span style="color: {priority_color}; font-weight: bold;">{priority_label}</span></p>
+                            <p><strong>Atayan:</strong> {task.creator.username}</p>
+                            {f"<p><strong>Son Tarih:</strong> {format_date_only(task.due_date)}</p>" if task.due_date else ""}
+                            <p><strong>Oluşturulma Tarihi:</strong> {format_date_time(task.created_at)}</p>
+                        </div>
+                        <div style="background-color: #e9ecef; padding: 15px; text-align: center;">
+                            <p style="margin: 0; color: #6c757d;">Bu görev size atanmıştır. Lütfen görev detaylarını inceleyiniz.</p>
+                            <p style="margin: 5px 0 0 0; color: #6c757d; font-size: 12px;">Tasken Todo Yönetim Sistemi</p>
+                        </div>
+                    </div>
+                    '''
+                )
+                try:
+                    mail.send(msg)
+                    mail_sent_count += 1
+                    print(f"✅ Mail gönderildi: {assignee.email}")
+                except Exception as mail_error:
+                    print(f"❌ Mail gönderme hatası ({assignee.email}): {mail_error}")
+            else:
+                print(f"❌ Email adresi yok: {assignee.username}")
+        
+        print(f"📊 Toplam {mail_sent_count} mail gönderildi")
+        return mail_sent_count > 0
+    except Exception as e:
+        print(f"❌ Genel mail gönderme hatası: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 # Yedekleme sistemi routes
