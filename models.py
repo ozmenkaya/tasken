@@ -195,3 +195,20 @@ class ReportComment(db.Model):
         backref=db.backref('comments', cascade='all, delete-orphan')
     )
     user = db.relationship('User', backref='report_comments')
+
+class Credential(db.Model):
+    __tablename__ = 'credentials'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    
+    # WebAuthn specific fields
+    credential_id = db.Column(db.LargeBinary, nullable=False, unique=True)
+    public_key = db.Column(db.LargeBinary, nullable=False)
+    sign_count = db.Column(db.Integer, default=0)
+    transports = db.Column(db.String(255))  # Stored as JSON string or comma-separated
+    
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    last_used_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    user = db.relationship('User', backref=db.backref('credentials', lazy=True))
