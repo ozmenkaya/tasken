@@ -670,6 +670,24 @@ def create_task():
                 except Exception as socket_error:
                     print(f"⚠️ Socket bildirim hatası: {socket_error}")
 
+                # OneSignal Notification
+                try:
+                    filters = []
+                    for assignee in assignees:
+                        filters.append({"field": "tag", "key": "username", "relation": "=", "value": assignee.username})
+                        filters.append({"operator": "OR"})
+                    
+                    if filters:
+                        filters.pop() # Remove last OR
+                        
+                        send_onesignal_notification(
+                            headings={"en": "Yeni Görev Atandı", "tr": "Yeni Görev Atandı"},
+                            contents={"en": f"{current_user.username} size yeni bir görev atadı: {task.title}", "tr": f"{current_user.username} size yeni bir görev atadı: {task.title}"},
+                            filters=filters
+                        )
+                except Exception as e:
+                    print(f"OneSignal Error: {e}")
+
                 if mail_sent:
                     if len(assigned_to_list) == 1:
                         flash('Görev başarıyla oluşturuldu ve mail gönderildi!')
@@ -745,6 +763,20 @@ def update_task_status(task_id):
     
     db.session.commit()
     flash('Görev durumu güncellendi!')
+
+    # OneSignal Notification for Status Change
+    try:
+        # Notify Creator (if not current user)
+        creator = User.query.get(task.created_by)
+        if creator and creator.id != current_user.id:
+             send_onesignal_notification(
+                headings={"en": "Görev Durumu Güncellendi", "tr": "Görev Durumu Güncellendi"},
+                contents={"en": f"{current_user.username} '{task.title}' görevinin durumunu '{new_status}' olarak güncelledi.", "tr": f"{current_user.username} '{task.title}' görevinin durumunu '{new_status}' olarak güncelledi."},
+                filters=[{"field": "tag", "key": "username", "relation": "=", "value": creator.username}]
+            )
+    except Exception as e:
+        print(f"OneSignal Error: {e}")
+
     return redirect(url_for('task_detail', task_id=task_id))
 
 # Yorum ekleme
@@ -763,6 +795,33 @@ def add_comment(task_id):
     db.session.add(comment)
     db.session.commit()
     flash('Yorum eklendi!')
+
+    # OneSignal Notification for Comment
+    try:
+        # Notify Assignees (excluding current user)
+        filters = []
+        for assignee in task.assignees:
+            if assignee.id != current_user.id:
+                filters.append({"field": "tag", "key": "username", "relation": "=", "value": assignee.username})
+                filters.append({"operator": "OR"})
+        
+        # Notify Creator (if not current user and not already in assignees list to avoid double notification)
+        creator = User.query.get(task.created_by)
+        if creator and creator.id != current_user.id and creator not in task.assignees:
+             filters.append({"field": "tag", "key": "username", "relation": "=", "value": creator.username})
+             filters.append({"operator": "OR"})
+
+        if filters:
+            filters.pop() # Remove last OR
+            
+            send_onesignal_notification(
+                headings={"en": "Yeni Yorum", "tr": "Yeni Yorum"},
+                contents={"en": f"{current_user.username} '{task.title}' görevine yorum yaptı: {content[:50]}...", "tr": f"{current_user.username} '{task.title}' görevine yorum yaptı: {content[:50]}..."},
+                filters=filters
+            )
+    except Exception as e:
+        print(f"OneSignal Error: {e}")
+
     return redirect(url_for('task_detail', task_id=task_id))
 
 # Kullanıcı yönetimi (sadece admin)
@@ -1563,6 +1622,9 @@ def delete_task(task_id):
         # Görev başlığını flash mesajı için sakla
         task_title = task.title
         
+        # Capture assignees for notification
+        assignees_to_notify = list(task.assignees)
+        
         # İlişkili yorumları sil
         Comment.query.filter_by(task_id=task_id).delete()
         
@@ -1574,6 +1636,25 @@ def delete_task(task_id):
         db.session.commit()
         
         flash(f'Görev "{task_title}" başarıyla silindi!')
+
+        # OneSignal Notification for Deletion
+        try:
+            filters = []
+            for assignee in assignees_to_notify:
+                if assignee.id != current_user.id:
+                    filters.append({"field": "tag", "key": "username", "relation": "=", "value": assignee.username})
+                    filters.append({"operator": "OR"})
+            
+            if filters:
+                filters.pop() # Remove last OR
+                
+                send_onesignal_notification(
+                    headings={"en": "Görev Silindi", "tr": "Görev Silindi"},
+                    contents={"en": f"{current_user.username} '{task_title}' görevini sildi.", "tr": f"{current_user.username} '{task_title}' görevini sildi."},
+                    filters=filters
+                )
+        except Exception as e:
+            print(f"OneSignal Error: {e}")
         
     except Exception as e:
         db.session.rollback()
@@ -1599,6 +1680,18 @@ def complete_task(task_id):
         db.session.commit()
         
         flash(f'Görev "{task.title}" tamamlandı olarak işaretlendi!')
+
+        # OneSignal Notification to Creator
+        try:
+            creator = User.query.get(task.created_by)
+            if creator and creator.id != current_user.id:
+                send_onesignal_notification(
+                    headings={"en": "Görev Tamamlandı", "tr": "Görev Tamamlandı"},
+                    contents={"en": f"{current_user.username} '{task.title}' görevini tamamladı.", "tr": f"{current_user.username} '{task.title}' görevini tamamladı."},
+                    filters=[{"field": "tag", "key": "username", "relation": "=", "value": creator.username}]
+                )
+        except Exception as e:
+            print(f"OneSignal Error: {e}")
         
     except Exception as e:
         db.session.rollback()

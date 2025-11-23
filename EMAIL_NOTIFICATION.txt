@@ -1,0 +1,30 @@
+EMAIL BİLDİRİM ÖZELLİĞİ
+=======================
+
+YAPILAN DEĞİŞİKLİKLER:
+
+1. Yeni Fonksiyon: send_task_assignment_email()
+   - Konum: app.py (satır 1189)
+   - Tüm görev atamaları için email gönderimi
+   - Öncelik seviyesine göre renk kodlu email
+   - Her atanan kullanıcıya ayrı email
+
+2. Güncellenen: create_task()
+   - Artık sadece acil değil TÜM görevler için email gönderilir
+   - Email başarısız olursa kullanıcı bilgilendirilir
+
+ÖNCELİK RENKLERİ:
+   - Acil: Kırmızı
+   - Yüksek: Turuncu
+   - Normal: Mavi
+   - Düşük: Gri
+
+TEST:
+   1. Yeni görev oluştur
+   2. Kullanıcılara ata
+   3. Email adresine sahip kullanıcılara otomatik mail gider
+
+YEDEK:
+   app.py.backup_20251121_123445
+
+DURUM: Aktif ve çalışıyor
