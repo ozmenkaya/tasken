@@ -25,9 +25,12 @@
                             <i class="fas fa-clock"></i> Beni hatırla (30 gün)
                         </label>
                     </div>
-                    <div class="d-grid">
+                    <div class="d-grid gap-2">
                         <button type="submit" class="btn btn-primary">
                             <i class="fas fa-sign-in-alt"></i> Giriş Yap
+                        </button>
+                        <button type="button" class="btn btn-outline-primary" onclick="loginBiometric()">
+                            <i class="fas fa-fingerprint"></i> Biyometrik Giriş
                         </button>
                     </div>
                 </form>
@@ -52,4 +55,70 @@
         </div>
     </div>
 </div>
+
+<script>
+async function loginBiometric() {
+    const username = document.getElementById('username').value;
+    if (!username) { 
+        alert('Lütfen önce kullanıcı adınızı girin'); 
+        return; 
+    }
+
+    try {
+        // 1. Get options
+        const resp = await fetch('/webauthn/login/begin', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username })
+        });
+        
+        const options = await resp.json();
+        if (options.status === 'failed') { 
+            alert(options.message); 
+            return; 
+        }
+
+        // 2. Decode challenge and allowCredentials
+        options.challenge = base64URLToBuffer(options.challenge);
+        if (options.allowCredentials) {
+            options.allowCredentials.forEach(cred => {
+                cred.id = base64URLToBuffer(cred.id);
+            });
+        }
+
+        // 3. Get assertion
+        const assertion = await navigator.credentials.get({ publicKey: options });
+
+        // 4. Encode response
+        const assertionJSON = {
+            id: assertion.id,
+            rawId: bufferToBase64URL(assertion.rawId),
+            type: assertion.type,
+            response: {
+                authenticatorData: bufferToBase64URL(assertion.response.authenticatorData),
+                clientDataJSON: bufferToBase64URL(assertion.response.clientDataJSON),
+                signature: bufferToBase64URL(assertion.response.signature),
+                userHandle: assertion.response.userHandle ? bufferToBase64URL(assertion.response.userHandle) : null
+            }
+        };
+
+        // 5. Verify with server
+        const verifyResp = await fetch('/webauthn/login/complete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(assertionJSON)
+        });
+
+        const result = await verifyResp.json();
+        if (result.status === 'success') {
+            window.location.href = result.url;
+        } else {
+            alert(result.message);
+        }
+    } catch (e) {
+        console.error(e);
+        alert('Biyometrik giriş başarısız veya iptal edildi.');
+    }
+}
+</script>
 {% endblock %}

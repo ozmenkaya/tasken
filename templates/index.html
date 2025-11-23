@@ -211,12 +211,12 @@
                                                 </td>
                                                 <td>
                                                     {% if task.status != 'completed' and (current_user.role in ['admin', 'manager'] or current_user in task.assignees) %}
-                                                    <button type="button" class="btn btn-sm btn-outline-success ms-1" onclick="completeTask({{ task.id }}, '{{ task.title|escape }}')" title="Tamamlandı İşaretle">
+                                                    <button type="button" class="btn btn-sm btn-outline-success ms-1" onclick="completeTask({{ task.id }}, {{ task.title|tojson|forceescape }})" title="Tamamlandı İşaretle">
                                                         <i class="fas fa-check"></i>
                                                     </button>
                                                     {% endif %}
                                                     {% if current_user.role == 'admin' or task.created_by == current_user.id %}
-                                                    <button type="button" class="btn btn-sm btn-outline-danger ms-1" onclick="deleteTask({{ task.id }}, '{{ task.title|escape }}')">
+                                                    <button type="button" class="btn btn-sm btn-outline-danger ms-1" onclick="deleteTask({{ task.id }}, {{ task.title|tojson|forceescape }})">
                                                         <i class="fas fa-trash"></i>
                                                     </button>
                                                     {% endif %}
@@ -310,7 +310,7 @@
                                                 </td>
                                                 <td>
                                                     {% if current_user.role == 'admin' or task.created_by == current_user.id %}
-                                                    <button type="button" class="btn btn-sm btn-outline-danger ms-1" onclick="deleteTask({{ task.id }}, '{{ task.title|escape }}')">
+                                                    <button type="button" class="btn btn-sm btn-outline-danger ms-1" onclick="deleteTask({{ task.id }}, {{ task.title|tojson|forceescape }})">
                                                         <i class="fas fa-trash"></i>
                                                     </button>
                                                     {% endif %}
@@ -420,7 +420,7 @@
                                                 </td>
                                                 <td>
                                                     {% if task.status != 'completed' and (current_user.role in ['admin', 'manager'] or current_user in task.assignees) %}
-                                                    <button type="button" class="btn btn-sm btn-outline-success ms-1" onclick="completeTask({{ task.id }}, '{{ task.title|escape }}')" title="Tamamlandı İşaretle">
+                                                    <button type="button" class="btn btn-sm btn-outline-success ms-1" onclick="completeTask({{ task.id }}, {{ task.title|tojson|forceescape }})" title="Tamamlandı İşaretle">
                                                         <i class="fas fa-check"></i>
                                                     </button>
                                                     {% endif %}
@@ -566,7 +566,7 @@
                                                     </button>
                                                     {% endif %}
                                                     {% if task.status != 'completed' and (current_user.role in ['admin', 'manager'] or current_user in task.assignees) %}
-                                                    <button type="button" class="btn btn-sm btn-outline-success ms-1" onclick="completeTask({{ task.id }}, '{{ task.title|escape }}')" title="Tamamlandı İşaretle">
+                                                    <button type="button" class="btn btn-sm btn-outline-success ms-1" onclick="completeTask({{ task.id }}, {{ task.title|tojson|forceescape }})" title="Tamamlandı İşaretle">
                                                         <i class="fas fa-check"></i>
                                                     </button>
                                                     {% endif %}
@@ -680,7 +680,7 @@
                                                 </td>
                                                 <td>
                                                     {% if task.status != 'completed' and (current_user.role in ['admin', 'manager'] or current_user in task.assignees) %}
-                                                    <button type="button" class="btn btn-sm btn-outline-success ms-1" onclick="completeTask({{ task.id }}, '{{ task.title|escape }}')" title="Tamamlandı İşaretle">
+                                                    <button type="button" class="btn btn-sm btn-outline-success ms-1" onclick="completeTask({{ task.id }}, {{ task.title|tojson|forceescape }})" title="Tamamlandı İşaretle">
                                                         <i class="fas fa-check"></i>
                                                     </button>
                                                     {% endif %}
@@ -783,7 +783,7 @@
                                                 </td>
                                                 <td>
                                                     {% if current_user.role == 'admin' or task.created_by == current_user.id %}
-                                                    <button type="button" class="btn btn-sm btn-outline-danger ms-1" onclick="deleteTask({{ task.id }}, '{{ task.title|escape }}')">
+                                                    <button type="button" class="btn btn-sm btn-outline-danger ms-1" onclick="deleteTask({{ task.id }}, {{ task.title|tojson|forceescape }})">
                                                         <i class="fas fa-trash"></i>
                                                     </button>
                                                     {% endif %}
@@ -1122,5 +1122,108 @@ function deleteTask(taskId, taskTitle) {
         });
     }
 }
+
+// Swipe Actions for Mobile (Kaydırma Hareketleri)
+document.addEventListener('DOMContentLoaded', function() {
+    const taskRows = document.querySelectorAll('.task-row');
+    
+    taskRows.forEach(row => {
+        let startX;
+        let startY;
+        let currentX;
+        let isSwiping = false;
+        const threshold = 100; // Minimum distance to trigger action
+        
+        row.addEventListener('touchstart', (e) => {
+            startX = e.touches[0].clientX;
+            startY = e.touches[0].clientY;
+            isSwiping = true;
+            row.style.transition = 'none'; // Disable transition during swipe
+        }, { passive: true });
+        
+        row.addEventListener('touchmove', (e) => {
+            if (!isSwiping) return;
+            
+            currentX = e.touches[0].clientX;
+            const currentY = e.touches[0].clientY;
+            const diffX = currentX - startX;
+            const diffY = currentY - startY;
+
+            // If vertical scroll is dominant, ignore horizontal swipe
+            if (Math.abs(diffY) > Math.abs(diffX)) {
+                // Let the browser handle scrolling
+                return;
+            }
+            
+            // If horizontal swipe is dominant, prevent default scrolling
+            if (e.cancelable && Math.abs(diffX) > 10) {
+                 e.preventDefault(); 
+            }
+
+            // Limit swipe distance visually
+            if (Math.abs(diffX) < 200) {
+                row.style.transform = `translateX(${diffX}px)`;
+                
+                // Visual feedback
+                if (diffX > 50) {
+                    // Swiping Right (Complete)
+                    row.style.backgroundColor = `rgba(25, 135, 84, ${Math.min(Math.abs(diffX)/200, 0.2)})`; // Green tint
+                } else if (diffX < -50) {
+                    // Swiping Left (Delete)
+                    row.style.backgroundColor = `rgba(220, 53, 69, ${Math.min(Math.abs(diffX)/200, 0.2)})`; // Red tint
+                } else {
+                    row.style.backgroundColor = '';
+                }
+            }
+        }, { passive: false }); // passive: false is needed to use preventDefault
+        
+        row.addEventListener('touchend', (e) => {
+            if (!isSwiping) return;
+            isSwiping = false;
+            row.style.transition = 'transform 0.3s ease, background-color 0.3s ease';
+            
+            // If currentX is undefined (tap without move), reset
+            if (!currentX) {
+                 currentX = startX;
+            }
+
+            const diff = currentX - startX;
+            
+            if (diff > threshold) {
+                // Swipe Right -> Complete
+                const completeBtn = row.querySelector('button[onclick^="completeTask"]');
+                if (completeBtn) {
+                    // Reset visual before action
+                    row.style.transform = 'translateX(0)';
+                    row.style.backgroundColor = '';
+                    setTimeout(() => completeBtn.click(), 100);
+                } else {
+                     // Reset if action not available
+                    row.style.transform = 'translateX(0)';
+                    row.style.backgroundColor = '';
+                }
+            } else if (diff < -threshold) {
+                // Swipe Left -> Delete
+                const deleteBtn = row.querySelector('button[onclick^="deleteTask"]');
+                if (deleteBtn) {
+                    // Reset visual before action
+                    row.style.transform = 'translateX(0)';
+                    row.style.backgroundColor = '';
+                    setTimeout(() => deleteBtn.click(), 100);
+                } else {
+                    // Reset if action not available
+                    row.style.transform = 'translateX(0)';
+                    row.style.backgroundColor = '';
+                }
+            } else {
+                // Reset
+                row.style.transform = 'translateX(0)';
+                row.style.backgroundColor = '';
+            }
+            // Reset coordinates
+            currentX = undefined;
+        });
+    });
+});
 </script>
 {% endblock %}

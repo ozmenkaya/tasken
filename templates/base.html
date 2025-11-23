@@ -307,7 +307,15 @@
             
             /* Mobile Dropdown Menu */
             .dropdown-menu {
-                font-size: 0.9rem;
+                font-size: 0.95rem;
+                border: none;
+                box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+                border-radius: 12px;
+                margin-top: 10px;
+            }
+            
+            .dropdown-item {
+                padding: 0.7rem 1rem;
             }
             
             /* Mobile Container Padding */
@@ -562,9 +570,115 @@
                 gap: 1rem;
             }
         }
+
+        /* Bottom Navigation Bar */
+        .bottom-nav {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 60px;
+            background-color: #fff;
+            box-shadow: 0 -2px 10px rgba(0,0,0,0.1);
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            z-index: 1040;
+            padding-bottom: env(safe-area-inset-bottom); /* For iPhone X+ */
+        }
+
+        .bottom-nav-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: #6c757d;
+            text-decoration: none;
+            font-size: 0.75rem;
+            width: 20%;
+            height: 100%;
+            transition: color 0.2s ease;
+        }
+
+        .bottom-nav-item.active {
+            color: #0d6efd;
+        }
+
+        .bottom-nav-item i {
+            font-size: 1.25rem;
+            margin-bottom: 2px;
+        }
+
+        .bottom-nav-fab {
+            width: 50px;
+            height: 50px;
+            background-color: #0d6efd;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            box-shadow: 0 4px 10px rgba(13, 110, 253, 0.3);
+            transform: translateY(-15px);
+            border: 4px solid #f8f9fa; /* Match body background */
+            transition: transform 0.2s ease;
+        }
+
+        .bottom-nav-fab:hover, .bottom-nav-fab:active {
+            color: white;
+            transform: translateY(-18px);
+        }
+
+        /* Adjust main content padding for bottom nav */
+        @media (max-width: 768px) {
+            body {
+                padding-bottom: 70px;
+            }
+            /* Hide top nav links on mobile since we have bottom nav */
+            .navbar-nav .d-flex.align-items-center.me-2 {
+                display: none !important;
+            }
+            /* Hide dynamic add button in top nav on mobile */
+            .navbar-nav .me-2:not(.d-flex) {
+                display: none !important;
+            }
+        }
+
+        /* Pull to Refresh Spinner */
+        #pull-to-refresh {
+            position: fixed;
+            top: -60px;
+            left: 0;
+            width: 100%;
+            height: 60px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1050;
+            transition: top 0.3s ease;
+            pointer-events: none;
+        }
+        
+        .refresh-spinner {
+            width: 30px;
+            height: 30px;
+            border: 3px solid rgba(13, 110, 253, 0.3);
+            border-radius: 50%;
+            border-top-color: #0d6efd;
+            animation: spin 1s ease-in-out infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body>
+    <!-- Pull to Refresh Spinner -->
+    <div id="pull-to-refresh">
+        <div class="refresh-spinner"></div>
+    </div>
+
     <!-- Navigation -->
     <nav class="navbar navbar-expand navbar-dark bg-primary sticky-top">
         <div class="container-fluid">
@@ -615,7 +729,7 @@
                     </div>
                     
                     <!-- Kullanıcı Dropdown'u -->
-                    <div class="nav-item dropdown">
+                    <div class="nav-item dropdown ms-auto">
                         <a class="nav-link dropdown-toggle text-white d-flex align-items-center" href="#" id="navbarDropdown" role="button" data-bs-toggle="dropdown">
                             <i class="fas fa-user me-1"></i> 
                             <span class="d-none d-md-inline">{{ current_user.username }}</span>
@@ -703,6 +817,36 @@
     <div class="container-fluid main-content">
         {% block content %}{% endblock %}
     </div>
+
+    {% if current_user.is_authenticated %}
+    <!-- Bottom Navigation Bar (Mobile Only) -->
+    <div class="bottom-nav d-md-none">
+        <a href="{{ url_for('index') }}" class="bottom-nav-item {% if request.endpoint == 'index' or request.endpoint == 'task_detail' %}active{% endif %}">
+            <i class="fas fa-tasks"></i>
+            <span>Görevler</span>
+        </a>
+        
+        <a href="{{ url_for('reminders') }}" class="bottom-nav-item {% if request.endpoint == 'reminders' %}active{% endif %}">
+            <i class="fas fa-bell"></i>
+            <span>Anımsat</span>
+        </a>
+        
+        <!-- Central FAB for Add Action -->
+        <a href="{{ url_for('create_task') }}" class="bottom-nav-fab" id="mobileFab">
+            <i class="fas fa-plus"></i>
+        </a>
+        
+        <a href="{{ url_for('reports') }}" class="bottom-nav-item {% if request.endpoint == 'reports' %}active{% endif %}">
+            <i class="fas fa-file-alt"></i>
+            <span>Raporlar</span>
+        </a>
+        
+        <a href="#" class="bottom-nav-item" data-bs-toggle="modal" data-bs-target="#accountModal">
+            <i class="fas fa-user"></i>
+            <span>Profil</span>
+        </a>
+    </div>
+    {% endif %}
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
@@ -867,6 +1011,12 @@
                             <div class="mb-3">
                                 <strong>Kayıt Tarihi:</strong> {{ current_user.created_at.strftime('%d.%m.%Y %H:%M') if current_user.created_at else 'Bilinmiyor' }}
                             </div>
+                            
+                            <div class="mb-3 pt-3 border-top">
+                                <button type="button" class="btn btn-outline-primary w-100" onclick="registerBiometric()">
+                                    <i class="fas fa-fingerprint me-2"></i>Biyometrik Giriş Ekle (FaceID/TouchID)
+                                </button>
+                            </div>
                         </div>
                     </div>
                     
@@ -913,6 +1063,7 @@
         // Dinamik Yeni Ekle Butonu
         function setupDynamicAddButton() {
             const addBtn = $('#dynamicAddBtn');
+            const mobileFab = $('#mobileFab');
             const currentPath = window.location.pathname;
             
             // Sayfa türüne göre buton ayarları
@@ -945,21 +1096,30 @@
                 btnConfig.icon = 'fa-user-plus';
             }
             
-            // Buton ayarlarını uygula
+            // Buton ayarlarını uygula (Desktop)
             addBtn.attr('href', btnConfig.url);
             addBtn.attr('title', btnConfig.title);
             addBtn.find('i').attr('class', 'fas ' + btnConfig.icon);
+
+            // Buton ayarlarını uygula (Mobile FAB)
+            if (mobileFab.length) {
+                mobileFab.attr('href', btnConfig.url);
+                mobileFab.find('i').attr('class', 'fas ' + btnConfig.icon);
+            }
             
             // Admin değilse ve görev oluşturma yetkisi yoksa butonu gizle
             const userRole = '{{ current_user.role }}';
             if (currentPath === '/' || currentPath.includes('/index') || currentPath.includes('/task')) {
                 if (userRole === 'employee') {
                     addBtn.hide();
+                    if (mobileFab.length) mobileFab.hide();
                 } else {
                     addBtn.show();
+                    if (mobileFab.length) mobileFab.show();
                 }
             } else {
                 addBtn.show();
+                if (mobileFab.length) mobileFab.show();
             }
         }
         
@@ -1068,7 +1228,6 @@
                     </div>
                 </div>
             `;
-            
             $('body').append(toastHtml);
             
             // 5 saniye sonra toast'ı kapat
@@ -1117,206 +1276,98 @@
     </script>
     {% endif %}
     
-    <!-- PWA Installation and Service Worker -->
+    <!-- Socket.IO Client -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
     <script>
-    // PWA Installation
-    let deferredPrompt;
-    let installButton = null;
-    
-    // Service Worker Registration
-    if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
-            navigator.serviceWorker.register('/static/sw.js')
-                .then(registration => {
-                    console.log('SW: Registered successfully', registration.scope);
-                })
-                .catch(error => {
-                    console.log('SW: Registration failed', error);
-                });
-        });
-    }
-    
-    // PWA Install Prompt
-    window.addEventListener('beforeinstallprompt', (e) => {
-        console.log('PWA: Install prompt available');
-        e.preventDefault();
-        deferredPrompt = e;
-        
-        // Show install button
-        showInstallButton();
-    });
-    
-    // PWA Install Success
-    window.addEventListener('appinstalled', (evt) => {
-        console.log('PWA: App installed successfully');
-        hideInstallButton();
-        
-        // Show success message
-        if (typeof $ !== 'undefined') {
-            const toastHtml = `
-                <div class="toast-container position-fixed bottom-0 end-0 p-3">
-                    <div class="toast show" role="alert">
-                        <div class="toast-header">
-                            <i class="fas fa-mobile-alt text-success me-2"></i>
-                            <strong class="me-auto">Helmex Tasks</strong>
-                            <button type="button" class="btn-close" data-bs-dismiss="toast"></button>
-                        </div>
-                        <div class="toast-body">
-                            Uygulama başarıyla yüklendi! Ana ekrandan erişebilirsiniz.
-                        </div>
-                    </div>
-                </div>
-            `;
-            $('body').append(toastHtml);
-            $('.toast').toast('show');
-        }
-    });
-    
-    // Show Install Button
-    function showInstallButton() {
-        if (!installButton && typeof $ !== 'undefined') {
-            const buttonHtml = `
-                <div id="pwa-install-button" class="position-fixed bottom-0 start-0 m-3" style="z-index: 1050;">
-                    <button type="button" class="btn btn-primary btn-sm shadow-lg" onclick="installPWA()">
-                        <i class="fas fa-download me-1"></i>
-                        <span class="d-none d-sm-inline">Uygulamayı Yükle</span>
-                        <span class="d-inline d-sm-none">Yükle</span>
-                    </button>
-                </div>
-            `;
-            $('body').append(buttonHtml);
-            installButton = document.getElementById('pwa-install-button');
-        }
-    }
-    
-    // Hide Install Button
-    function hideInstallButton() {
-        if (installButton) {
-            installButton.remove();
-            installButton = null;
-        }
-    }
-    
-    // Install PWA
-    function installPWA() {
-        if (deferredPrompt) {
-            deferredPrompt.prompt();
-            deferredPrompt.userChoice.then((choiceResult) => {
-                if (choiceResult.outcome === 'accepted') {
-                    console.log('PWA: User accepted install');
-                } else {
-                    console.log('PWA: User dismissed install');
-                }
-                deferredPrompt = null;
-                hideInstallButton();
-            });
-        }
-    }
-    
-    // Mobile App Behavior
-    if (window.matchMedia('(display-mode: standalone)').matches || 
-        window.navigator.standalone === true) {
-        console.log('PWA: Running as installed app');
-        
-        // Add standalone app class
-        document.body.classList.add('pwa-standalone');
-        
-        // Prevent zoom on double tap
-        let lastTouchEnd = 0;
-        document.addEventListener('touchend', function (event) {
-            const now = (new Date()).getTime();
-            if (now - lastTouchEnd <= 300) {
-                event.preventDefault();
-            }
-            lastTouchEnd = now;
-        }, false);
-    }
-    
-    // Offline/Online Status
-    function updateOnlineStatus() {
-        if (navigator.onLine) {
-            console.log('PWA: Online');
-            document.body.classList.remove('offline');
-            document.body.classList.add('online');
-        } else {
-            console.log('PWA: Offline');
-            document.body.classList.remove('online');
-            document.body.classList.add('offline');
+        document.addEventListener('DOMContentLoaded', function() {
+            // Initialize Socket.IO
+            var socket = io();
             
-            // Show offline message
-            if (typeof $ !== 'undefined') {
-                const offlineHtml = `
-                    <div class="toast-container position-fixed top-0 start-50 translate-middle-x p-3">
-                        <div class="toast show bg-warning" role="alert">
-                            <div class="toast-body text-center">
-                                <i class="fas fa-wifi text-danger me-2"></i>
-                                Bağlantı kesildi. Çevrimdışı modda çalışıyorsunuz.
+            socket.on('connect', function() {
+                console.log('🔌 Socket connected!');
+            });
+            
+            socket.on('new_task', function(data) {
+                console.log('🔔 New task received:', data);
+                
+                // Show toast notification
+                showNewTaskToast(data);
+                
+                // Update badge if exists
+                const tasksBadge = document.getElementById('tasksBadge');
+                if (tasksBadge) {
+                    tasksBadge.classList.remove('d-none');
+                    tasksBadge.classList.add('d-block');
+                }
+            });
+            
+            function showNewTaskToast(data) {
+                // Priority label mapping
+                const priorityLabels = {
+                    'urgent': 'ACİL',
+                    'high': 'Yüksek',
+                    'medium': 'Orta',
+                    'low': 'Düşük'
+                };
+                
+                const priorityColors = {
+                    'urgent': 'danger',
+                    'high': 'warning',
+                    'medium': 'info',
+                    'low': 'secondary'
+                };
+
+                const toastHtml = `
+                    <div class="toast-container position-fixed top-0 end-0 p-3" style="z-index: 1060;">
+                        <div class="toast show" role="alert" aria-live="assertive" aria-atomic="true" data-bs-autohide="false">
+                            <div class="toast-header bg-primary text-white">
+                                <i class="fas fa-tasks me-2"></i>
+                                <strong class="me-auto">Yeni Görev!</strong>
+                                <small>Şimdi</small>
+                                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast" aria-label="Close"></button>
+                            </div>
+                            <div class="toast-body">
+                                <strong>${data.title}</strong><br>
+                                <span class="text-muted">Atayan: ${data.creator}</span><br>
+                                <span class="badge bg-${priorityColors[data.priority] || 'primary'} mt-2">
+                                    ${priorityLabels[data.priority] || 'Normal'}
+                                </span>
+                                <div class="mt-2 pt-2 border-top">
+                                    <a href="/task/${data.task_id}" class="btn btn-sm btn-primary w-100">Görüntüle</a>
+                                </div>
                             </div>
                         </div>
                     </div>
                 `;
-                $('body').append(offlineHtml);
                 
+                document.body.insertAdjacentHTML('beforeend', toastHtml);
+                
+                // Auto hide after 10 seconds
                 setTimeout(() => {
-                    $('.toast').toast('hide');
-                }, 3000);
+                    const toastContainer = document.querySelector('.toast-container:last-of-type');
+                    if (toastContainer) {
+                        toastContainer.remove();
+                    }
+                }, 10000);
             }
-        }
-    }
-    
-    // Listen for online/offline events
-    window.addEventListener('online', updateOnlineStatus);
-    window.addEventListener('offline', updateOnlineStatus);
-    
-    // Initial status check
-    updateOnlineStatus();
-    
-    {% if current_user.is_authenticated and current_user.role != 'admin' %}
-    // Hesap silme fonksiyonu
-    function confirmDeleteAccount() {
-        const username = '{{ current_user.username }}';
-        
-        if (confirm(`UYARI: Bu işlem geri alınamaz!\n\n"${username}" hesabınızı kalıcı olarak silmek istediğinizden emin misiniz?\n\nTüm verileriniz silinecek ve tekrar giriş yapamazsınız.`)) {
-            if (confirm('Son kez soruyoruz: Hesabınızı gerçekten silmek istediğinizden emin misiniz?')) {
-                // Form oluştur ve gönder
-                const form = document.createElement('form');
-                form.method = 'POST';
-                form.action = '{{ url_for("delete_account") }}';
-                
-                // CSRF token ekle (eğer varsa)
-                const token = document.querySelector('meta[name="csrf-token"]');
-                if (token) {
-                    const csrfInput = document.createElement('input');
-                    csrfInput.type = 'hidden';
-                    csrfInput.name = 'csrf_token';
-                    csrfInput.value = token.getAttribute('content');
-                    form.appendChild(csrfInput);
-                }
-                
-                document.body.appendChild(form);
-                form.submit();
-            }
-        }
-    }
-    {% endif %}
+        });
     </script>
     
-    {% block scripts %}{% endblock %}
-            <!-- OneSignal Web SDK -->
-            {% if ONESIGNAL_APP_ID %}
-            <script src="https://cdn.onesignal.com/sdks/OneSignalSDK.page.js" async></script>
-            <script>
-                window.OneSignalDeferred = window.OneSignalDeferred || [];
-                OneSignalDeferred.push(async function(OneSignal) {
-                    try {
-                        const allowLocalhost = "{{ ONESIGNAL_ALLOW_LOCALHOST | default('false') }}".toLowerCase() === "true";
-                        await OneSignal.init({
-                            appId: "{{ ONESIGNAL_APP_ID }}",
-                            allowLocalhostAsSecureOrigin: allowLocalhost,
-                            serviceWorkerParam: { scope: '/' },
-                            serviceWorkerPath: '/OneSignalSDKWorker.js',
-                            serviceWorkerUpdaterPath: '/OneSignalSDKUpdaterWorker.js'
-                        });
+    <!-- OneSignal Web SDK -->
+    {% if ONESIGNAL_APP_ID %}
+    <script src="https://cdn.onesignal.com/sdks/OneSignalSDK.page.js" async></script>
+    <script>
+        window.OneSignalDeferred = window.OneSignalDeferred || [];
+        OneSignalDeferred.push(async function(OneSignal) {
+            try {
+                const allowLocalhost = "{{ ONESIGNAL_ALLOW_LOCALHOST | default('false') }}".toLowerCase() === "true";
+                await OneSignal.init({
+                    appId: "{{ ONESIGNAL_APP_ID }}",
+                    allowLocalhostAsSecureOrigin: allowLocalhost,
+                    serviceWorkerParam: { scope: '/' },
+                    serviceWorkerPath: '/OneSignalSDKWorker.js',
+                    serviceWorkerUpdaterPath: '/OneSignalSDKUpdaterWorker.js'
+                });
                                       const isAuthenticated = "{{ 'true' if current_user.is_authenticated else 'false' }}" === "true";
                                     if (isAuthenticated) {
                                         try { await OneSignal.User.addTag("username", "{{ current_user.username | e }}"); } catch (e) {}
@@ -1328,5 +1379,82 @@
             </script>
             {% endif %}
 
+    <!-- WebAuthn / Biometric Logic -->
+    <script>
+    // Helper functions for Base64URL encoding/decoding
+    function bufferToBase64URL(buffer) {
+        const bytes = new Uint8Array(buffer);
+        let string = '';
+        for (let i = 0; i < bytes.byteLength; i++) {
+            string += String.fromCharCode(bytes[i]);
+        }
+        return btoa(string).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+    }
+
+    function base64URLToBuffer(base64URL) {
+        const base64 = base64URL.replace(/-/g, '+').replace(/_/g, '/');
+        const padLen = (4 - (base64.length % 4)) % 4;
+        const padded = base64.padEnd(base64.length + padLen, '=');
+        const binary = atob(padded);
+        const buffer = new ArrayBuffer(binary.length);
+        const bytes = new Uint8Array(buffer);
+        for (let i = 0; i < binary.length; i++) {
+            bytes[i] = binary.charCodeAt(i);
+        }
+        return buffer;
+    }
+
+    // --- REGISTRATION ---
+    async function registerBiometric() {
+        try {
+            // 1. Get options from server
+            const resp = await fetch('/webauthn/register/begin', { method: 'POST' });
+            const options = await resp.json();
+
+            if (options.status === 'failed') {
+                alert(options.message);
+                return;
+            }
+
+            // 2. Decode binary fields
+            options.challenge = base64URLToBuffer(options.challenge);
+            options.user.id = base64URLToBuffer(options.user.id);
+            if (options.excludeCredentials) {
+                options.excludeCredentials.forEach(cred => {
+                    cred.id = base64URLToBuffer(cred.id);
+                });
+            }
+
+            // 3. Create credential
+            const credential = await navigator.credentials.create({ publicKey: options });
+            
+            // 4. Encode response to send back
+            const credentialJSON = {
+                id: credential.id,
+                rawId: bufferToBase64URL(credential.rawId),
+                type: credential.type,
+                response: {
+                    attestationObject: bufferToBase64URL(credential.response.attestationObject),
+                    clientDataJSON: bufferToBase64URL(credential.response.clientDataJSON),
+                    transports: credential.response.getTransports ? credential.response.getTransports() : []
+                }
+            };
+
+            // 5. Send to server
+            const verifyResp = await fetch('/webauthn/register/complete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(credentialJSON)
+            });
+            
+            const result = await verifyResp.json();
+            alert(result.message);
+            
+        } catch (e) {
+            console.error(e);
+            alert('Kayıt başarısız veya iptal edildi.');
+        }
+    }
+    </script>
 </body>
 </html>
