@@ -1,6 +1,7 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_from_directory, send_from_directory
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_from_directory, session
 from flask_login import LoginManager, login_user, login_required, logout_user, current_user
 from flask_mail import Mail, Message
+from flask_socketio import SocketIO, emit, join_room, leave_room
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, timedelta
 import os
@@ -11,8 +12,26 @@ from functools import lru_cache
 import json
 import requests
 
+# WebAuthn imports
+from webauthn import (
+    generate_registration_options,
+    verify_registration_response,
+    options_to_json,
+    base64url_to_bytes,
+    generate_authentication_options,
+    verify_authentication_response,
+)
+from webauthn.helpers.structs import (
+    AuthenticatorSelectionCriteria,
+    UserVerificationRequirement,
+    PublicKeyCredentialDescriptor,
+    ResidentKeyRequirement,
+    RegistrationCredential,
+    AuthenticationCredential,
+)
+
 # Models import
-from models import db, User, Task, Comment, Reminder, Report, ReportComment, task_assignments, report_shares, report_reads
+from models import db, User, Task, Comment, Reminder, Report, ReportComment, task_assignments, report_shares, report_reads, Credential
 from sqlalchemy import case
 
 # Mail konfigürasyonu için kalıcı saklama
@@ -97,6 +116,9 @@ def istanbul_to_utc(istanbul_dt):
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'your-secret-key-here-change-in-production')
+
+# Initialize SocketIO
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
 
 # Expose OneSignal config to all templates
 @app.context_processor
@@ -630,6 +652,21 @@ def create_task():
             # Tüm görevler için mail gönder
             try:
                 mail_sent = send_task_assignment_email(task, assignees)
+                
+                # SocketIO ile bildirim gönder
+                try:
+                    for assignee in assignees:
+                        socketio.emit('new_task', {
+                            'title': task.title,
+                            'creator': current_user.username,
+                            'priority': task.priority,
+                            'task_id': task.id,
+                            'message': f"{current_user.username} size yeni bir görev atadı: {task.title}"
+                        }, room=f"user_{assignee.id}")
+                    print(f"📡 Socket bildirimi gönderildi: {len(assignees)} kişi")
+                except Exception as socket_error:
+                    print(f"⚠️ Socket bildirim hatası: {socket_error}")
+
                 if mail_sent:
                     if len(assigned_to_list) == 1:
                         flash('Görev başarıyla oluşturuldu ve mail gönderildi!')
@@ -1094,7 +1131,7 @@ def api_timezone_preview():
             
             # Varsayılan format kullan
             config = load_timezone_config()
-            time_str = current_time.strftime(config['display_format'])
+            time_str = current_time.strftime(config['display_format']);
             
             return jsonify({
                 'time': time_str,
@@ -2042,67 +2079,180 @@ def api_reports_notifications():
         'new_comments': new_comments
     })
 
+# SocketIO Connection Handler
+@socketio.on('connect')
+def handle_connect():
+    if current_user.is_authenticated:
+        join_room(f"user_{current_user.id}")
+        print(f"🔌 Socket connected: {current_user.username} (Room: user_{current_user.id})")
+
 # =============================================================================
-if __name__ == '__main__':
-    import os
-    import time
-    import sys
+# WebAuthn Configuration
+if os.environ.get('FLASK_ENV') == 'production':
+    RP_ID = os.environ.get('WEBAUTHN_RP_ID', 'tasken.com.tr')
+    ORIGIN = os.environ.get('WEBAUTHN_ORIGIN', 'https://tasken.com.tr')
+else:
+    RP_ID = 'localhost'
+    ORIGIN = 'http://localhost:5000'
+
+RP_NAME = 'Helmex Tasks'
+
+# --- WEBAUTHN REGISTRATION ---
+
+@app.route('/webauthn/register/begin', methods=['POST'])
+@login_required
+def register_begin():
+    # Dynamic RP_ID and ORIGIN
+    rp_id = request.host.split(':')[0]
+    origin = f"{request.scheme}://{request.host}"
     
-    # Memory usage monitoring  
-    def print_memory_usage():
-        """Memory kullanımını yazdır"""
-        try:
-            import psutil
-            process = psutil.Process()
-            memory_mb = process.memory_info().rss / 1024 / 1024
-            print(f"🧠 Memory usage: {memory_mb:.1f} MB")
-        except ImportError:
-            print("📊 psutil not available for memory monitoring")
+    # 1. Check if user already has credentials to prevent re-registration of same authenticator
+    user_credentials = Credential.query.filter_by(user_id=current_user.id).all()
     
-    print_memory_usage()
+    exclude_credentials = []
+    for cred in user_credentials:
+        exclude_credentials.append(
+            PublicKeyCredentialDescriptor(id=cred.credential_id)
+        )
+
+    # 2. Generate options
+    options = generate_registration_options(
+        rp_id=rp_id,
+        rp_name=RP_NAME,
+        user_id=str(current_user.id).encode(),  # Must be bytes
+        user_name=current_user.username,
+        user_display_name=current_user.username,
+        authenticator_selection=AuthenticatorSelectionCriteria(
+            user_verification=UserVerificationRequirement.PREFERRED,
+            resident_key=ResidentKeyRequirement.PREFERRED,
+        ),
+        exclude_credentials=exclude_credentials,
+    )
+
+    # 3. Store challenge in session to verify later
+    session['current_registration_challenge'] = options.challenge
+
+    return options_to_json(options)
+
+@app.route('/webauthn/register/complete', methods=['POST'])
+@login_required
+def register_complete():
+    data = request.get_json()
     
-    # Database bağlantısını retry ile dene
-    max_retries = 5
-    retry_delay = 2
+    # Dynamic RP_ID and ORIGIN
+    rp_id = request.host.split(':')[0]
+    origin = f"{request.scheme}://{request.host}"
     
-    for attempt in range(max_retries):
-        try:
-            with app.app_context():
-                # Database bağlantısını test et
-                from sqlalchemy import text
-                result = db.session.execute(text('SELECT 1'))
-                print(f"✅ Database bağlantısı başarılı (attempt {attempt + 1})")
-                
-                # Tabloları oluştur
-                db.create_all()
-                print("✅ Tablolar oluşturuldu/güncellendi")
-                
-                # Admin kullanıcı oluştur
-                create_admin_user()
-                print("✅ Admin kullanıcı kontrolü tamamlandı")
-                
-                break  # Başarılı, döngüden çık
-                
-        except Exception as e:
-            print(f"❌ Database bağlantı hatası (attempt {attempt + 1}/{max_retries}): {e}")
-            
-            if attempt < max_retries - 1:
-                print(f"⏳ {retry_delay} saniye bekleyip tekrar denenecek...")
-                time.sleep(retry_delay)
-                retry_delay *= 2  # Exponential backoff
-            else:
-                print("💥 Maximum retry sayısına ulaşıldı. SQLite fallback kullanılacak.")
-                # SQLite fallback
-                app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///todo_company.db'
-                with app.app_context():
-                    db.create_all()
-                    create_admin_user()
-                break
+    # 1. Retrieve challenge from session
+    challenge = session.get('current_registration_challenge')
+    if not challenge:
+        return jsonify({"status": "failed", "message": "Challenge not found"}), 400
+
+    try:
+        # 2. Verify the response
+        verification = verify_registration_response(
+            credential=RegistrationCredential.parse_obj(data),
+            expected_challenge=challenge,
+            expected_origin=origin,
+            expected_rp_id=rp_id,
+        )
+
+        # 3. Save credential to database
+        new_credential = Credential(
+            user_id=current_user.id,
+            credential_id=verification.credential_id,
+            public_key=verification.credential_public_key,
+            sign_count=verification.sign_count,
+            transports=json.dumps(data.get('response', {}).get('transports', []))
+        )
+        
+        db.session.add(new_credential)
+        db.session.commit()
+        
+        return jsonify({"status": "success", "message": "Biyometrik giriş başarıyla kaydedildi!"})
+        
+    except Exception as e:
+        print(f"WebAuthn Register Error: {e}")
+        return jsonify({"status": "failed", "message": str(e)}), 400
+
+# --- WEBAUTHN LOGIN ---
+
+@app.route('/webauthn/login/begin', methods=['POST'])
+def login_begin():
+    # Dynamic RP_ID and ORIGIN
+    rp_id = request.host.split(':')[0]
     
-    # Production için port'u environment variable'dan al
-    port = int(os.environ.get('PORT', 5004))
-    debug = os.environ.get('FLASK_ENV') != 'production'
+    username = request.json.get('username')
+    user = User.query.filter_by(username=username).first()
     
-    print(f"🚀 Flask app başlatılıyor - Port: {port}, Debug: {debug}")
-    print_memory_usage()  # Memory kullanımını başlangıçta da göster
-    app.run(debug=debug, host='0.0.0.0', port=port)
+    if not user:
+        return jsonify({"status": "failed", "message": "Kullanıcı bulunamadı"}), 404
+
+    # Get user's credentials
+    user_credentials = Credential.query.filter_by(user_id=user.id).all()
+    
+    if not user_credentials:
+        return jsonify({"status": "failed", "message": "Bu kullanıcı için biyometrik giriş tanımlanmamış"}), 400
+
+    allow_credentials = []
+    for cred in user_credentials:
+        allow_credentials.append(
+            PublicKeyCredentialDescriptor(id=cred.credential_id)
+        )
+
+    options = generate_authentication_options(
+        rp_id=rp_id,
+        allow_credentials=allow_credentials,
+        user_verification=UserVerificationRequirement.PREFERRED,
+    )
+
+    session['current_authentication_challenge'] = options.challenge
+    session['webauthn_login_user_id'] = user.id # Store who is trying to login
+
+    return options_to_json(options)
+
+@app.route('/webauthn/login/complete', methods=['POST'])
+def login_complete():
+    data = request.get_json()
+    
+    # Dynamic RP_ID and ORIGIN
+    rp_id = request.host.split(':')[0]
+    origin = f"{request.scheme}://{request.host}"
+    
+    challenge = session.get('current_authentication_challenge')
+    user_id = session.get('webauthn_login_user_id')
+    
+    if not challenge or not user_id:
+        return jsonify({"status": "failed", "message": "Oturum zaman aşımı"}), 400
+
+    user = User.query.get(user_id)
+    # Find the specific credential used
+    credential_id_bytes = base64url_to_bytes(data['id'])
+    credential = Credential.query.filter_by(credential_id=credential_id_bytes).first()
+
+    if not credential:
+        return jsonify({"status": "failed", "message": "Kimlik bilgisi bulunamadı"}), 400
+
+    try:
+        verification = verify_authentication_response(
+            credential=AuthenticationCredential.parse_obj(data),
+            expected_challenge=challenge,
+            expected_origin=origin,
+            expected_rp_id=rp_id,
+            credential_public_key=credential.public_key,
+            credential_current_sign_count=credential.sign_count,
+        )
+
+        # Update counter
+        credential.sign_count = verification.new_sign_count
+        credential.last_used_at = datetime.utcnow()
+        db.session.commit()
+
+        # Log the user in via Flask-Login
+        login_user(user, remember=True)
+        
+        return jsonify({"status": "success", "url": url_for('index')})
+        
+    except Exception as e:
+        print(f"WebAuthn Login Error: {e}")
+        return jsonify({"status": "failed", "message": str(e)}), 400
