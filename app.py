@@ -658,15 +658,29 @@ def create_task():
                 
                 # SocketIO ile bildirim gönder
                 try:
+                    assignee_names = [u.username for u in assignees]
+                    formatted_due_date = format_date_only(task.due_date) if task.due_date else '-'
+                    
+                    task_data = {
+                        'title': task.title,
+                        'creator': current_user.username,
+                        'priority': task.priority,
+                        'status': task.status,
+                        'task_id': task.id,
+                        'due_date': formatted_due_date,
+                        'description': task.description,
+                        'assignees': assignee_names,
+                        'message': f"{current_user.username} size yeni bir görev atadı: {task.title}"
+                    }
+                    
+                    # Emit to assignees
                     for assignee in assignees:
-                        socketio.emit('new_task', {
-                            'title': task.title,
-                            'creator': current_user.username,
-                            'priority': task.priority,
-                            'task_id': task.id,
-                            'message': f"{current_user.username} size yeni bir görev atadı: {task.title}"
-                        }, room=f"user_{assignee.id}")
-                    print(f"📡 Socket bildirimi gönderildi: {len(assignees)} kişi")
+                        socketio.emit('new_task', task_data, room=f"user_{assignee.id}")
+                        
+                    # Emit to admins (so they see it in All Tasks)
+                    socketio.emit('new_task', task_data, room='admin')
+                    
+                    print(f"📡 Socket bildirimi gönderildi: {len(assignees)} kişi + Adminler")
                 except Exception as socket_error:
                     print(f"⚠️ Socket bildirim hatası: {socket_error}")
 
@@ -1681,6 +1695,29 @@ def complete_task(task_id):
         
         flash(f'Görev "{task.title}" tamamlandı olarak işaretlendi!')
 
+        # SocketIO Notification for Completion
+        try:
+            completion_data = {
+                'task_id': task.id,
+                'title': task.title,
+                'completed_by': current_user.username,
+                'completed_at': format_date_time(datetime.utcnow()),
+                'status': 'completed'
+            }
+            
+            # Notify Creator
+            socketio.emit('task_completed', completion_data, room=f"user_{task.created_by}")
+            
+            # Notify Assignees
+            for assignee in task.assignees:
+                socketio.emit('task_completed', completion_data, room=f"user_{assignee.id}")
+                
+            # Notify Admins
+            socketio.emit('task_completed', completion_data, room='admin')
+            
+        except Exception as socket_error:
+            print(f"⚠️ Socket completion notification error: {socket_error}")
+
         # OneSignal Notification to Creator
         try:
             creator = User.query.get(task.created_by)
@@ -2180,6 +2217,8 @@ def api_reports_notifications():
 def handle_connect():
     if current_user.is_authenticated:
         join_room(f"user_{current_user.id}")
+        if current_user.role == 'admin':
+            join_room('admin')
         print(f"🔌 Socket connected: {current_user.username} (Room: user_{current_user.id})")
 
 # =============================================================================

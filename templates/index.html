@@ -165,7 +165,7 @@
                                         </thead>
                                         <tbody>
                                             {% for task in tasks %}
-                                            <tr class="task-row" data-status="{{ task.status }}" data-priority="{{ task.priority }}">
+                                            <tr class="task-row" id="task-row-{{ task.id }}" data-status="{{ task.status }}" data-priority="{{ task.priority }}">
                                                 <td>
                                                     <div>
                                                         <strong>
@@ -266,7 +266,7 @@
                                         </thead>
                                         <tbody class="task-tbody">
                                             {% for task in completed_tasks %}
-                                            <tr class="task-row table-success" data-status="{{ task.status }}" data-priority="{{ task.priority }}">
+                                            <tr class="task-row table-success" id="task-row-{{ task.id }}" data-status="{{ task.status }}" data-priority="{{ task.priority }}">
                                                 <td>
                                                     <div>
                                                         <strong>
@@ -371,7 +371,7 @@
                                         </thead>
                                         <tbody class="task-tbody">
                                             {% for task in assigned_tasks %}
-                                            <tr class="task-row" data-status="{{ task.status }}" data-priority="{{ task.priority }}">
+                                            <tr class="task-row" id="task-row-{{ task.id }}" data-status="{{ task.status }}" data-priority="{{ task.priority }}">
                                                 <td>
                                                     <div>
                                                         <strong>
@@ -509,7 +509,7 @@
                                         </thead>
                                         <tbody class="task-tbody">
                                             {% for task in created_tasks %}
-                                            <tr class="task-row" data-status="{{ task.status }}" data-priority="{{ task.priority }}">
+                                            <tr class="task-row" id="task-row-{{ task.id }}" data-status="{{ task.status }}" data-priority="{{ task.priority }}">
                                                 <td>
                                                     <div>
                                                         <strong>
@@ -634,7 +634,7 @@
                                         </thead>
                                         <tbody>
                                             {% for task in tasks %}
-                                            <tr class="task-row" data-status="{{ task.status }}" data-priority="{{ task.priority }}">
+                                            <tr class="task-row" id="task-row-{{ task.id }}" data-status="{{ task.status }}" data-priority="{{ task.priority }}">
                                                 <td>
                                                     <div>
                                                         <strong>
@@ -739,7 +739,7 @@
                                         </thead>
                                         <tbody class="task-tbody">
                                             {% for task in completed_tasks_list %}
-                                            <tr class="task-row table-success" data-status="{{ task.status }}" data-priority="{{ task.priority }}">
+                                            <tr class="task-row table-success" id="task-row-{{ task.id }}" data-status="{{ task.status }}" data-priority="{{ task.priority }}">
                                                 <td>
                                                     <div>
                                                         <strong>
@@ -942,6 +942,182 @@ $(document).ready(function() {
         filterTasks(); // Kart görünümü için
         filterListTasks(); // Liste görünümü için
     });
+
+    // Socket.IO New Task Listener
+    if (typeof socket !== 'undefined') {
+        socket.on('new_task', function(data) {
+            console.log('📋 New task received in index:', data);
+            
+            // Check if task already exists to prevent duplicates
+            if ($(`#task-row-${data.task_id}`).length > 0) {
+                return;
+            }
+            
+            // Determine which container to add to
+            // If admin, add to 'all-tasks'
+            // If employee/manager, add to 'assigned-tasks'
+            
+            const isAdmin = "{{ current_user.role }}" === 'admin';
+            const targetContainerId = isAdmin ? '#list-container-all tbody' : '#list-container-assigned tbody';
+            const targetBadgeId = isAdmin ? '#all-tasks-tab .badge' : '#assigned-tasks-tab .badge';
+            
+            // Priority badge class
+            const priorityClasses = {
+                'urgent': 'danger',
+                'high': 'warning',
+                'medium': 'info',
+                'low': 'secondary'
+            };
+            
+            const priorityLabels = {
+                'urgent': 'Acil',
+                'high': 'Yüksek',
+                'medium': 'Orta',
+                'low': 'Düşük'
+            };
+            
+            // Assignees HTML
+            let assigneesHtml = '';
+            if (data.assignees && data.assignees.length > 0) {
+                data.assignees.forEach((assignee, index) => {
+                    assigneesHtml += `<span class="badge bg-light text-dark">${assignee}</span>${index < data.assignees.length - 1 ? ', ' : ''}`;
+                });
+            } else {
+                assigneesHtml = '<span class="badge bg-secondary text-white">Atanmamış</span>';
+            }
+            
+            // Description HTML (truncated)
+            let descriptionHtml = '';
+            if (data.description) {
+                // Strip tags and truncate
+                let tmp = document.createElement("DIV");
+                tmp.innerHTML = data.description;
+                let text = tmp.textContent || tmp.innerText || "";
+                let truncated = text.length > 100 ? text.substring(0, 100) + '...' : text;
+                descriptionHtml = `<br><small class="text-muted d-none d-md-block">${truncated}</small>`;
+            }
+            
+            // Due Date HTML
+            const dueDateHtml = data.due_date ? 
+                `<small class="text-muted">${data.due_date}</small>` : 
+                `<small class="text-muted">-</small>`;
+            
+            // New Row HTML
+            const newRow = `
+                <tr class="task-row" id="task-row-${data.task_id}" data-status="${data.status || 'pending'}" data-priority="${data.priority}">
+                    <td>
+                        <div>
+                            <strong>
+                                <a href="/task/${data.task_id}" class="text-decoration-none">${data.title}</a>
+                                <i class="fas fa-eye text-danger ms-2" title="Okunmadı"></i>
+                            </strong>
+                            ${descriptionHtml}
+                        </div>
+                    </td>
+                    <td>
+                        ${assigneesHtml}
+                    </td>
+                    <td>
+                        <span class="badge bg-light text-dark">${data.creator}</span>
+                    </td>
+                    <td>
+                        <span class="badge bg-${priorityClasses[data.priority] || 'secondary'}">
+                            ${priorityLabels[data.priority] || 'Normal'}
+                        </span>
+                    </td>
+                    <td>
+                        <span class="badge bg-warning">Beklemede</span>
+                    </td>
+                    <td>
+                        ${dueDateHtml}
+                    </td>
+                    <td>
+                        <button type="button" class="btn btn-sm btn-outline-success ms-1" onclick='completeTask(${data.task_id}, ${JSON.stringify(data.title)})' title="Tamamlandı İşaretle">
+                            <i class="fas fa-check"></i>
+                        </button>
+                    </td>
+                </tr>
+            `;
+            
+            // Prepend to table
+            const tbody = $(targetContainerId);
+            if (tbody.length) {
+                // Remove "No tasks" alert if exists
+                tbody.closest('.list-view').find('.alert-info').remove();
+                // Ensure table exists (if it was empty before, it might not have the table structure)
+                if (tbody.find('tr').length === 0 && !tbody.closest('table').length) {
+                     // Reload page if structure is missing (simplest way to handle empty state transition)
+                     location.reload();
+                } else {
+                    tbody.prepend(newRow);
+                    
+                    // Highlight new row
+                    const insertedRow = tbody.find('tr').first();
+                    insertedRow.css('background-color', '#e8f5e9');
+                    setTimeout(() => {
+                        insertedRow.css('background-color', '');
+                    }, 2000);
+                }
+            }
+            
+            // Update badge count
+            const badge = $(targetBadgeId);
+            if (badge.length) {
+                let count = parseInt(badge.text()) || 0;
+                badge.text(count + 1);
+            }
+        });
+
+        socket.on('task_completed', function(data) {
+            console.log('✅ Task completed received:', data);
+            
+            const taskRow = $(`#task-row-${data.task_id}`);
+            
+            if (taskRow.length) {
+                // Visual feedback
+                taskRow.addClass('table-success');
+                taskRow.find('td').css('background-color', '#d4edda'); // Bootstrap success color
+                
+                // If we are in "Active Tasks" or "Assigned Tasks" view, remove the row after delay
+                const activeTabId = $('.tab-pane.active').attr('id');
+                const isCompletedTab = activeTabId === 'completed-tasks';
+                
+                if (!isCompletedTab) {
+                    setTimeout(() => {
+                        taskRow.fadeOut(500, function() {
+                            $(this).remove();
+                            
+                            // Update badges
+                            // Decrease active count
+                            const activeBadge = $('.nav-link.active .badge');
+                            if (activeBadge.length) {
+                                let count = parseInt(activeBadge.text()) || 0;
+                                if (count > 0) activeBadge.text(count - 1);
+                            }
+                            
+                            // Increase completed count
+                            const completedBadge = $('#completed-tasks-tab .badge');
+                            if (completedBadge.length) {
+                                let count = parseInt(completedBadge.text()) || 0;
+                                completedBadge.text(count + 1);
+                            }
+                            
+                            // If no tasks left, show empty message
+                            const tbody = taskRow.closest('tbody');
+                            if (tbody.children('tr').length === 0) {
+                                location.reload(); // Reload to show empty state correctly
+                            }
+                        });
+                    }, 1000);
+                } else {
+                    // If we are already in completed tab, just update status badge
+                    taskRow.find('.badge.bg-warning, .badge.bg-primary, .badge.bg-danger').removeClass('bg-warning bg-primary bg-danger').addClass('bg-success').text('Tamamlandı');
+                    // Remove actions
+                    taskRow.find('button').remove();
+                }
+            }
+        });
+    }
 });
 
 // Görev silme onayı (ana sayfa için)
@@ -965,7 +1141,8 @@ function completeTask(taskId, taskTitle) {
             type: 'POST',
             success: function(result) {
                 // Başarılıysa sayfayı yenile
-                location.reload();
+                // location.reload(); // Handled by Socket.IO
+                console.log('Task completion request successful');
             },
             error: function(xhr, status, error) {
                 // Hata mesajı göster
@@ -1016,7 +1193,7 @@ function editTaskDescription(taskId) {
                 toolbar: [
                     ['style', ['style']],
                     ['font', ['bold', 'italic', 'underline', 'clear']],
-                    ['fontname', ['fontname']],
+                    ['fontname', ['fontname]],
                     ['color', ['color']],
                     ['para', ['ul', 'ol', 'paragraph']],
                     ['custom', ['checkbox']],  // Checkbox button eklendi

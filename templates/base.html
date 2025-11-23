@@ -1279,9 +1279,12 @@
     <!-- Socket.IO Client -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
     <script>
+        // Make socket global so other templates can use it
+        var socket;
+        
         document.addEventListener('DOMContentLoaded', function() {
             // Initialize Socket.IO
-            var socket = io();
+            socket = io();
             
             socket.on('connect', function() {
                 console.log('🔌 Socket connected!');
