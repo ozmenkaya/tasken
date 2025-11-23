@@ -211,12 +211,12 @@
                                                 </td>
                                                 <td>
                                                     {% if task.status != 'completed' and (current_user.role in ['admin', 'manager'] or current_user in task.assignees) %}
-                                                    <button type="button" class="btn btn-sm btn-outline-success ms-1" onclick="completeTask({{ task.id }}, {{ task.title|tojson|forceescape }})" title="Tamamlandı İşaretle">
+                                                    <button type="button" class="btn btn-sm btn-outline-success ms-1" onclick='completeTask({{ task.id }}, {{ task.title|tojson|forceescape }})' title="Tamamlandı İşaretle">
                                                         <i class="fas fa-check"></i>
                                                     </button>
                                                     {% endif %}
                                                     {% if current_user.role == 'admin' or task.created_by == current_user.id %}
-                                                    <button type="button" class="btn btn-sm btn-outline-danger ms-1" onclick="deleteTask({{ task.id }}, {{ task.title|tojson|forceescape }})">
+                                                    <button type="button" class="btn btn-sm btn-outline-danger ms-1" onclick='deleteTask({{ task.id }}, {{ task.title|tojson|forceescape }})'>
                                                         <i class="fas fa-trash"></i>
                                                     </button>
                                                     {% endif %}
@@ -310,7 +310,7 @@
                                                 </td>
                                                 <td>
                                                     {% if current_user.role == 'admin' or task.created_by == current_user.id %}
-                                                    <button type="button" class="btn btn-sm btn-outline-danger ms-1" onclick="deleteTask({{ task.id }}, {{ task.title|tojson|forceescape }})">
+                                                    <button type="button" class="btn btn-sm btn-outline-danger ms-1" onclick='deleteTask({{ task.id }}, {{ task.title|tojson|forceescape }})'>
                                                         <i class="fas fa-trash"></i>
                                                     </button>
                                                     {% endif %}
@@ -420,7 +420,7 @@
                                                 </td>
                                                 <td>
                                                     {% if task.status != 'completed' and (current_user.role in ['admin', 'manager'] or current_user in task.assignees) %}
-                                                    <button type="button" class="btn btn-sm btn-outline-success ms-1" onclick="completeTask({{ task.id }}, {{ task.title|tojson|forceescape }})" title="Tamamlandı İşaretle">
+                                                    <button type="button" class="btn btn-sm btn-outline-success ms-1" onclick='completeTask({{ task.id }}, {{ task.title|tojson|forceescape }})' title="Tamamlandı İşaretle">
                                                         <i class="fas fa-check"></i>
                                                     </button>
                                                     {% endif %}
@@ -566,7 +566,7 @@
                                                     </button>
                                                     {% endif %}
                                                     {% if task.status != 'completed' and (current_user.role in ['admin', 'manager'] or current_user in task.assignees) %}
-                                                    <button type="button" class="btn btn-sm btn-outline-success ms-1" onclick="completeTask({{ task.id }}, {{ task.title|tojson|forceescape }})" title="Tamamlandı İşaretle">
+                                                    <button type="button" class="btn btn-sm btn-outline-success ms-1" onclick='completeTask({{ task.id }}, {{ task.title|tojson|forceescape }})' title="Tamamlandı İşaretle">
                                                         <i class="fas fa-check"></i>
                                                     </button>
                                                     {% endif %}
@@ -680,7 +680,7 @@
                                                 </td>
                                                 <td>
                                                     {% if task.status != 'completed' and (current_user.role in ['admin', 'manager'] or current_user in task.assignees) %}
-                                                    <button type="button" class="btn btn-sm btn-outline-success ms-1" onclick="completeTask({{ task.id }}, {{ task.title|tojson|forceescape }})" title="Tamamlandı İşaretle">
+                                                    <button type="button" class="btn btn-sm btn-outline-success ms-1" onclick='completeTask({{ task.id }}, {{ task.title|tojson|forceescape }})' title="Tamamlandı İşaretle">
                                                         <i class="fas fa-check"></i>
                                                     </button>
                                                     {% endif %}
@@ -783,7 +783,7 @@
                                                 </td>
                                                 <td>
                                                     {% if current_user.role == 'admin' or task.created_by == current_user.id %}
-                                                    <button type="button" class="btn btn-sm btn-outline-danger ms-1" onclick="deleteTask({{ task.id }}, {{ task.title|tojson|forceescape }})">
+                                                    <button type="button" class="btn btn-sm btn-outline-danger ms-1" onclick='deleteTask({{ task.id }}, {{ task.title|tojson|forceescape }})'>
                                                         <i class="fas fa-trash"></i>
                                                     </button>
                                                     {% endif %}
