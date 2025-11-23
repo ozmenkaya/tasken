@@ -1,15 +1,36 @@
-bind = "0.0.0.0:5004"
-workers = 1  # 512MB RAM için worker sayısını azalttık (2'den 1'e)
-worker_class = "sync"
-worker_connections = 500  # Connection sayısını azalttık (1000'den 500'e)
-max_requests = 500  # Request limit'i azalttık (1000'den 500'e)
-max_requests_jitter = 50  # Jitter'ı azalttık (100'den 50'ye)
-timeout = 30
-keepalive = 2
-preload_app = True
-worker_memory_limit = 400 * 1024 * 1024  # 400MB worker memory limit
+import multiprocessing
+import os
 
-# Memory optimization settings
-max_worker_memory = 400  # MB - worker restarts if exceeds
-graceful_timeout = 10  # Graceful shutdown timeout
-worker_tmp_dir = "/dev/shm"  # Use memory for temp files if available
+# Bind
+bind = "0.0.0.0:5004"
+
+# Workers
+# SocketIO requires 1 worker if no message queue is used
+workers = 1
+worker_class = "eventlet"
+worker_connections = 1000
+max_requests = 1000
+max_requests_jitter = 50
+timeout = 60
+keepalive = 2
+
+# Logging
+accesslog = "/var/log/gunicorn/access.log"
+errorlog = "/var/log/gunicorn/error.log"
+loglevel = "warning"
+access_log_format = "%({x-forwarded-for}i)s %(l)s %(u)s %(t)s \"%(r)s\" %(s)s %(b)s \"%(f)s\" \"%(a)s\" %(D)s"
+
+# Process naming
+proc_name = "tasken"
+
+# Server mechanics
+daemon = False
+pidfile = None
+umask = 0
+user = None
+group = None
+tmp_upload_dir = None
+
+# SSL (optional)
+# keyfile = None
+# certfile = None
