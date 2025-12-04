@@ -810,6 +810,59 @@ def add_comment(task_id):
     db.session.commit()
     flash('Yorum eklendi!')
 
+    # Mail bildirimini gönder
+    try:
+        # Kime mail gönderilecek?
+        recipients = []
+        
+        # Görev oluşturan kişiye (eğer yorum yapan değilse)
+        creator = User.query.get(task.created_by)
+        if creator and creator.id != current_user.id and creator.email:
+            recipients.append(creator)
+        
+        # Atanan kişilere (yorum yapan hariç)
+        for assignee in task.assignees:
+            if assignee.id != current_user.id and assignee.email and assignee not in recipients:
+                recipients.append(assignee)
+        
+        # Mail gönder
+        if recipients:
+            for recipient in recipients:
+                try:
+                    msg = Message(
+                        subject=f'💬 Yeni Yorum: {task.title}',
+                        recipients=[recipient.email],
+                        html=f'''
+                        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                            <div style="background-color: #0d6efd; color: white; padding: 20px; text-align: center;">
+                                <h1>💬 Görevinize Yeni Yorum Yapıldı</h1>
+                            </div>
+                            <div style="padding: 20px; background-color: #f8f9fa;">
+                                <h2>{task.title}</h2>
+                                <p><strong>Yorum Yapan:</strong> {current_user.username}</p>
+                                <div style="background-color: white; padding: 15px; border-left: 4px solid #0d6efd; margin: 10px 0;">
+                                    {content.replace(chr(10), "<br>")}
+                                </div>
+                                <p style="margin-top: 20px;">
+                                    <a href="{request.host_url}task/{task.id}" style="background-color: #0d6efd; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block;">Göreve Git</a>
+                                </p>
+                            </div>
+                            <div style="background-color: #e9ecef; padding: 15px; text-align: center;">
+                                <p style="margin: 0; color: #6c757d;">Bu görevle ilgili bir yorum yapıldı.</p>
+                                <p style="margin: 5px 0 0 0; color: #6c757d; font-size: 12px;">Tasken Todo Yönetim Sistemi</p>
+                            </div>
+                        </div>
+                        '''
+                    )
+                    mail.send(msg)
+                    print(f"✅ Yorum mail bildirimi gönderildi: {recipient.email}")
+                except Exception as mail_error:
+                    print(f"❌ Yorum mail gönderme hatası ({recipient.email}): {mail_error}")
+            
+            print(f"📊 Toplam {len(recipients)} kişiye yorum bildirimi gönderildi")
+    except Exception as e:
+        print(f"❌ Yorum mail bildirimi genel hatası: {e}")
+
     # OneSignal Notification for Comment
     try:
         # Notify Assignees (excluding current user)
