@@ -89,6 +89,15 @@
                                 </small>
                             </div>
                             <div>
+                                {% set is_image = attachment.mime_type and attachment.mime_type.startswith('image/') %}
+                                {% set is_pdf = attachment.mime_type == 'application/pdf' %}
+                                
+                                {% if is_image or is_pdf %}
+                                <button type="button" class="btn btn-sm btn-info me-1" onclick="viewAttachment('{{ url_for('download_attachment', attachment_id=attachment.id) }}', '{{ attachment.original_filename }}', '{{ attachment.mime_type }}')">
+                                    <i class="fas fa-eye"></i> Görüntüle
+                                </button>
+                                {% endif %}
+                                
                                 <a href="{{ url_for('download_attachment', attachment_id=attachment.id) }}" class="btn btn-sm btn-primary" download>
                                     <i class="fas fa-download"></i> İndir
                                 </a>
@@ -345,6 +354,62 @@ function confirmDelete(taskId, taskTitle) {
         document.body.appendChild(form);
         form.submit();
     }
+}
+
+// Dosya görüntüleme fonksiyonu (mobil uyumlu)
+function viewAttachment(url, filename, mimeType) {
+    const isImage = mimeType && mimeType.startsWith('image/');
+    const isPdf = mimeType === 'application/pdf';
+    
+    let modalContent = '';
+    
+    if (isImage) {
+        modalContent = `
+            <div class="text-center">
+                <img src="${url}" class="img-fluid" alt="${filename}" style="max-height: 70vh;">
+            </div>
+        `;
+    } else if (isPdf) {
+        modalContent = `
+            <div style="height: 70vh;">
+                <iframe src="${url}" style="width: 100%; height: 100%; border: none;"></iframe>
+            </div>
+        `;
+    }
+    
+    const modal = $(`
+        <div class="modal fade" id="fileViewModal" tabindex="-1">
+            <div class="modal-dialog modal-lg modal-dialog-centered">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title"><i class="fas fa-file"></i> ${filename}</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        ${modalContent}
+                    </div>
+                    <div class="modal-footer">
+                        <a href="${url}" class="btn btn-primary" download>
+                            <i class="fas fa-download"></i> İndir
+                        </a>
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Kapat</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `);
+    
+    // Eski modal varsa kaldır
+    $('#fileViewModal').remove();
+    
+    // Yeni modal'ı ekle ve göster
+    $('body').append(modal);
+    $('#fileViewModal').modal('show');
+    
+    // Modal kapandığında DOM'dan kaldır
+    $('#fileViewModal').on('hidden.bs.modal', function() {
+        $(this).remove();
+    });
 }
 
 // Dosya silme onayı
