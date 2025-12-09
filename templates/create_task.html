@@ -110,23 +110,65 @@ $(document).ready(function() {
     $('#due_date').attr('min', today);
     
     // Dosya seçimi önizleme
-    $('#attachments').on('change', function() {
-        const files = this.files;
+    let selectedFiles = new DataTransfer();
+    
+    $('#attachments').on('change', function(e) {
+        const files = e.target.files;
+        
+        // Yeni dosyaları DataTransfer'a ekle
+        Array.from(files).forEach(file => {
+            selectedFiles.items.add(file);
+        });
+        
+        updateFilePreview();
+        updateFileInput();
+    });
+    
+    function updateFilePreview() {
         const preview = $('#file-preview');
         preview.empty();
         
-        if (files.length > 0) {
-            const fileList = $('<div class="alert alert-info"><strong>Seçilen Dosyalar:</strong><ul class="mb-0 mt-2"></ul></div>');
+        if (selectedFiles.files.length > 0) {
+            const fileList = $('<div class="alert alert-info"><strong>Seçilen Dosyalar:</strong><ul class="mb-0 mt-2 list-unstyled"></ul></div>');
             const ul = fileList.find('ul');
             
-            Array.from(files).forEach(file => {
+            Array.from(selectedFiles.files).forEach((file, index) => {
                 const fileSize = (file.size / 1024).toFixed(2); // KB
                 const icon = getFileIcon(file.name);
-                ul.append(`<li><i class="${icon}"></i> ${file.name} (${fileSize} KB)</li>`);
+                const li = $(`
+                    <li class="d-flex align-items-center justify-content-between mb-2 p-2 border rounded">
+                        <span><i class="${icon}"></i> ${file.name} (${fileSize} KB)</span>
+                        <button type="button" class="btn btn-sm btn-danger remove-file" data-index="${index}">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </li>
+                `);
+                ul.append(li);
             });
             
             preview.append(fileList);
         }
+    }
+    
+    function updateFileInput() {
+        $('#attachments')[0].files = selectedFiles.files;
+    }
+    
+    // Dosya silme işlemi
+    $(document).on('click', '.remove-file', function() {
+        const index = $(this).data('index');
+        
+        // Yeni bir DataTransfer oluştur ve silinecek dosya hariç diğerlerini ekle
+        const newFiles = new DataTransfer();
+        Array.from(selectedFiles.files).forEach((file, i) => {
+            if (i !== index) {
+                newFiles.items.add(file);
+            }
+        });
+        
+        selectedFiles = newFiles;
+        updateFilePreview();
+        updateFileInput();
     });
     
     function getFileIcon(filename) {
