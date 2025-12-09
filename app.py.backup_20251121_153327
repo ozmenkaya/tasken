@@ -1,10 +1,6 @@
-import eventlet
-eventlet.monkey_patch()
-
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_from_directory, session
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_from_directory, send_from_directory
 from flask_login import LoginManager, login_user, login_required, logout_user, current_user
 from flask_mail import Mail, Message
-from flask_socketio import SocketIO, emit, join_room, leave_room
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, timedelta
 import os
@@ -15,28 +11,9 @@ from functools import lru_cache
 import json
 import requests
 
-# WebAuthn imports
-from webauthn import (
-    generate_registration_options,
-    verify_registration_response,
-    options_to_json,
-    base64url_to_bytes,
-    generate_authentication_options,
-    verify_authentication_response,
-)
-from webauthn.helpers.structs import (
-    AuthenticatorSelectionCriteria,
-    UserVerificationRequirement,
-    PublicKeyCredentialDescriptor,
-    ResidentKeyRequirement,
-    RegistrationCredential,
-    AuthenticationCredential,
-)
-
 # Models import
-from models import db, User, Task, Comment, Reminder, Report, ReportComment, TaskAttachment, task_assignments, report_shares, report_reads, Credential
+from models import db, User, Task, Comment, Reminder, Report, ReportComment, task_assignments, report_shares, report_reads
 from sqlalchemy import case
-from werkzeug.utils import secure_filename
 
 # Mail konfigürasyonu için kalıcı saklama
 from mail_config import save_mail_config, load_mail_config, apply_mail_config_to_app
@@ -121,9 +98,6 @@ def istanbul_to_utc(istanbul_dt):
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'your-secret-key-here-change-in-production')
 
-# Initialize SocketIO
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
-
 # Expose OneSignal config to all templates
 @app.context_processor
 def inject_onesignal_config():
@@ -185,20 +159,6 @@ from datetime import timedelta
 app.config['REMEMBER_COOKIE_DURATION'] = timedelta(days=30)
 app.config['REMEMBER_COOKIE_SECURE'] = False  # Development için False, production'da True
 app.config['REMEMBER_COOKIE_HTTPONLY'] = True
-
-# File upload configuration
-UPLOAD_FOLDER = 'uploads/task_attachments'
-ALLOWED_EXTENSIONS = {'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'jpg', 'jpeg', 'png', 'gif', 'zip', 'rar'}
-MAX_FILE_SIZE = 16 * 1024 * 1024  # 16MB
-
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-app.config['MAX_CONTENT_LENGTH'] = MAX_FILE_SIZE
-
-# Create upload folder if it doesn't exist
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-
-def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 # Timezone-aware date formatting functions
 def format_date_time(dt):
@@ -667,100 +627,19 @@ def create_task():
             
             print(f"✅ Task created successfully: {task.title}")
             
-            # Dosya yükleme işlemi
-            uploaded_files = request.files.getlist('attachments')
-            if uploaded_files:
-                for file in uploaded_files:
-                    if file and file.filename and allowed_file(file.filename):
-                        try:
-                            # Güvenli dosya adı oluştur
-                            original_filename = secure_filename(file.filename)
-                            filename = f"{task.id}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{original_filename}"
-                            file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-                            
-                            # Dosyayı kaydet
-                            file.save(file_path)
-                            
-                            # Dosya bilgilerini veritabanına kaydet
-                            attachment = TaskAttachment(
-                                filename=filename,
-                                original_filename=original_filename,
-                                file_path=file_path,
-                                file_size=os.path.getsize(file_path),
-                                mime_type=file.content_type,
-                                task_id=task.id,
-                                uploaded_by=current_user.id
-                            )
-                            db.session.add(attachment)
-                            print(f"📎 File attached: {original_filename}")
-                        except Exception as file_error:
-                            print(f"❌ File upload error: {file_error}")
-                
-                db.session.commit()
-            
-            # Tüm görevler için mail gönder
-            try:
-                mail_sent = send_task_assignment_email(task, assignees)
-                
-                # SocketIO ile bildirim gönder
+            # Acil görevler için mail gönder
+            if priority == 'urgent':
                 try:
-                    assignee_names = [u.username for u in assignees]
-                    formatted_due_date = format_date_only(task.due_date) if task.due_date else '-'
-                    
-                    task_data = {
-                        'title': task.title,
-                        'creator': current_user.username,
-                        'priority': task.priority,
-                        'status': task.status,
-                        'task_id': task.id,
-                        'due_date': formatted_due_date,
-                        'description': task.description,
-                        'assignees': assignee_names,
-                        'message': f"{current_user.username} size yeni bir görev atadı: {task.title}"
-                    }
-                    
-                    # Emit to assignees
-                    for assignee in assignees:
-                        socketio.emit('new_task', task_data, room=f"user_{assignee.id}")
-                        
-                    # Emit to admins (so they see it in All Tasks)
-                    socketio.emit('new_task', task_data, room='admin')
-                    
-                    print(f"📡 Socket bildirimi gönderildi: {len(assignees)} kişi + Adminler")
-                except Exception as socket_error:
-                    print(f"⚠️ Socket bildirim hatası: {socket_error}")
-
-                # OneSignal Notification
-                try:
-                    filters = []
-                    for assignee in assignees:
-                        filters.append({"field": "tag", "key": "username", "relation": "=", "value": assignee.username})
-                        filters.append({"operator": "OR"})
-                    
-                    if filters:
-                        filters.pop() # Remove last OR
-                        
-                        send_onesignal_notification(
-                            headings={"en": "Yeni Görev Atandı", "tr": "Yeni Görev Atandı"},
-                            contents={"en": f"{current_user.username} size yeni bir görev atadı: {task.title}", "tr": f"{current_user.username} size yeni bir görev atadı: {task.title}"},
-                            filters=filters
-                        )
-                except Exception as e:
-                    print(f"OneSignal Error: {e}")
-
-                if mail_sent:
-                    if len(assigned_to_list) == 1:
-                        flash('Görev başarıyla oluşturuldu ve mail gönderildi!')
-                    else:
-                        flash(f'Görev başarıyla oluşturuldu ve {len(assigned_to_list)} kişiye mail gönderildi!')
+                    send_urgent_task_email(task, assignees)
+                    flash(f'🚨 Acil görev oluşturuldu ve {len(assigned_to_list)} kişiye mail gönderildi!')
+                except Exception as mail_error:
+                    print(f"⚠️ Mail sending error: {mail_error}")
+                    flash(f'⚠️ Görev oluşturuldu ama mail gönderilemedi. {len(assigned_to_list)} kişiye atandı.')
+            else:
+                if len(assigned_to_list) == 1:
+                    flash('Görev başarıyla oluşturuldu!')
                 else:
-                    if len(assigned_to_list) == 1:
-                        flash('Görev başarıyla oluşturuldu!')
-                    else:
-                        flash(f'Görev başarıyla oluşturuldu ve {len(assigned_to_list)} kişiye atandı!')
-            except Exception as mail_error:
-                print(f"⚠️ Mail sending error: {mail_error}")
-                flash(f'⚠️ Görev oluşturuldu ama mail gönderilemedi. {len(assigned_to_list)} kişiye atandı.')
+                    flash(f'Görev başarıyla oluşturuldu ve {len(assigned_to_list)} kişiye atandı!')
             
             return redirect(url_for('index'))
             
@@ -823,20 +702,6 @@ def update_task_status(task_id):
     
     db.session.commit()
     flash('Görev durumu güncellendi!')
-
-    # OneSignal Notification for Status Change
-    try:
-        # Notify Creator (if not current user)
-        creator = User.query.get(task.created_by)
-        if creator and creator.id != current_user.id:
-             send_onesignal_notification(
-                headings={"en": "Görev Durumu Güncellendi", "tr": "Görev Durumu Güncellendi"},
-                contents={"en": f"{current_user.username} '{task.title}' görevinin durumunu '{new_status}' olarak güncelledi.", "tr": f"{current_user.username} '{task.title}' görevinin durumunu '{new_status}' olarak güncelledi."},
-                filters=[{"field": "tag", "key": "username", "relation": "=", "value": creator.username}]
-            )
-    except Exception as e:
-        print(f"OneSignal Error: {e}")
-
     return redirect(url_for('task_detail', task_id=task_id))
 
 # Yorum ekleme
@@ -855,86 +720,6 @@ def add_comment(task_id):
     db.session.add(comment)
     db.session.commit()
     flash('Yorum eklendi!')
-
-    # Mail bildirimini gönder
-    try:
-        # Kime mail gönderilecek?
-        recipients = []
-        
-        # Görev oluşturan kişiye (eğer yorum yapan değilse)
-        creator = User.query.get(task.created_by)
-        if creator and creator.id != current_user.id and creator.email:
-            recipients.append(creator)
-        
-        # Atanan kişilere (yorum yapan hariç)
-        for assignee in task.assignees:
-            if assignee.id != current_user.id and assignee.email and assignee not in recipients:
-                recipients.append(assignee)
-        
-        # Mail gönder
-        if recipients:
-            for recipient in recipients:
-                try:
-                    msg = Message(
-                        subject=f'💬 Yeni Yorum: {task.title}',
-                        recipients=[recipient.email],
-                        html=f'''
-                        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                            <div style="background-color: #0d6efd; color: white; padding: 20px; text-align: center;">
-                                <h1>💬 Görevinize Yeni Yorum Yapıldı</h1>
-                            </div>
-                            <div style="padding: 20px; background-color: #f8f9fa;">
-                                <h2>{task.title}</h2>
-                                <p><strong>Yorum Yapan:</strong> {current_user.username}</p>
-                                <div style="background-color: white; padding: 15px; border-left: 4px solid #0d6efd; margin: 10px 0;">
-                                    {content.replace(chr(10), "<br>")}
-                                </div>
-                                <p style="margin-top: 20px;">
-                                    <a href="{request.host_url}task/{task.id}" style="background-color: #0d6efd; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block;">Göreve Git</a>
-                                </p>
-                            </div>
-                            <div style="background-color: #e9ecef; padding: 15px; text-align: center;">
-                                <p style="margin: 0; color: #6c757d;">Bu görevle ilgili bir yorum yapıldı.</p>
-                                <p style="margin: 5px 0 0 0; color: #6c757d; font-size: 12px;">Tasken Todo Yönetim Sistemi</p>
-                            </div>
-                        </div>
-                        '''
-                    )
-                    mail.send(msg)
-                    print(f"✅ Yorum mail bildirimi gönderildi: {recipient.email}")
-                except Exception as mail_error:
-                    print(f"❌ Yorum mail gönderme hatası ({recipient.email}): {mail_error}")
-            
-            print(f"📊 Toplam {len(recipients)} kişiye yorum bildirimi gönderildi")
-    except Exception as e:
-        print(f"❌ Yorum mail bildirimi genel hatası: {e}")
-
-    # OneSignal Notification for Comment
-    try:
-        # Notify Assignees (excluding current user)
-        filters = []
-        for assignee in task.assignees:
-            if assignee.id != current_user.id:
-                filters.append({"field": "tag", "key": "username", "relation": "=", "value": assignee.username})
-                filters.append({"operator": "OR"})
-        
-        # Notify Creator (if not current user and not already in assignees list to avoid double notification)
-        creator = User.query.get(task.created_by)
-        if creator and creator.id != current_user.id and creator not in task.assignees:
-             filters.append({"field": "tag", "key": "username", "relation": "=", "value": creator.username})
-             filters.append({"operator": "OR"})
-
-        if filters:
-            filters.pop() # Remove last OR
-            
-            send_onesignal_notification(
-                headings={"en": "Yeni Yorum", "tr": "Yeni Yorum"},
-                contents={"en": f"{current_user.username} '{task.title}' görevine yorum yaptı: {content[:50]}...", "tr": f"{current_user.username} '{task.title}' görevine yorum yaptı: {content[:50]}..."},
-                filters=filters
-            )
-    except Exception as e:
-        print(f"OneSignal Error: {e}")
-
     return redirect(url_for('task_detail', task_id=task_id))
 
 # Kullanıcı yönetimi (sadece admin)
@@ -1306,7 +1091,7 @@ def api_timezone_preview():
             
             # Varsayılan format kullan
             config = load_timezone_config()
-            time_str = current_time.strftime(config['display_format']);
+            time_str = current_time.strftime(config['display_format'])
             
             return jsonify({
                 'time': time_str,
@@ -1395,87 +1180,6 @@ def send_urgent_task_email(task, assignees):
         import traceback
         traceback.print_exc()
         return False
-        return False
-
-
-def send_task_assignment_email(task, assignees):
-    """Yeni görev atandığında mail gönderir"""
-    try:
-        # Development ortamında mail konfigürasyonu yoksa simüle et
-        if not app.config.get('MAIL_USERNAME'):
-            print(f"📧 GÖREV ATAMA MAİLİ (SİMÜLE EDİLDİ):")
-            print(f"Görev: {task.title}")
-            print(f"Alıcılar: {[assignee.email or assignee.username for assignee in assignees]}")
-            return True
-        
-        # Öncelik renklerini belirle
-        priority_colors = {
-            "urgent": "#dc3545",
-            "high": "#fd7e14", 
-            "normal": "#0d6efd",
-            "low": "#6c757d"
-        }
-        
-        priority_labels = {
-            "urgent": "ACİL",
-            "high": "Yüksek",
-            "normal": "Normal",
-            "low": "Düşük"
-        }
-        
-        priority_color = priority_colors.get(task.priority, "#0d6efd")
-        priority_label = priority_labels.get(task.priority, "Normal")
-        
-        mail_sent_count = 0    
-        # Her atanan kullanıcıya ayrı mail gönder
-        for assignee in assignees:
-            if assignee.email:  # Email adresi varsa
-                print(f"📧 Mail gönderiliyor: {assignee.email}")
-                
-                # Başlık önceliğe göre değişir
-                subject_prefix = "🚨 ACİL GÖREV" if task.priority == "urgent" else "📋 Yeni Görev"
-                
-                msg = Message(
-                    subject=f"{subject_prefix}: {task.title}",
-                    recipients=[assignee.email],
-                    html=f'''
-                    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                        <div style="background-color: {priority_color}; color: white; padding: 20px; text-align: center;">
-                            <h1>📋 Size Yeni Görev Atandı</h1>
-                        </div>
-                        <div style="padding: 20px; background-color: #f8f9fa;">
-                            <h2>{task.title}</h2>
-                            <p><strong>Açıklama:</strong></p>
-                            <div style="background-color: white; padding: 15px; border-left: 4px solid {priority_color}; margin: 10px 0;">
-                                {task.description.replace(chr(10), "<br>") if task.description else "Açıklama yok"}
-                            </div>
-                            <p><strong>Öncelik:</strong> <span style="color: {priority_color}; font-weight: bold;">{priority_label}</span></p>
-                            <p><strong>Atayan:</strong> {task.creator.username}</p>
-                            {f"<p><strong>Son Tarih:</strong> {format_date_only(task.due_date)}</p>" if task.due_date else ""}
-                            <p><strong>Oluşturulma Tarihi:</strong> {format_date_time(task.created_at)}</p>
-                        </div>
-                        <div style="background-color: #e9ecef; padding: 15px; text-align: center;">
-                            <p style="margin: 0; color: #6c757d;">Bu görev size atanmıştır. Lütfen görev detaylarını inceleyiniz.</p>
-                            <p style="margin: 5px 0 0 0; color: #6c757d; font-size: 12px;">Tasken Todo Yönetim Sistemi</p>
-                        </div>
-                    </div>
-                    '''
-                )
-                try:
-                    mail.send(msg)
-                    mail_sent_count += 1
-                    print(f"✅ Mail gönderildi: {assignee.email}")
-                except Exception as mail_error:
-                    print(f"❌ Mail gönderme hatası ({assignee.email}): {mail_error}")
-            else:
-                print(f"❌ Email adresi yok: {assignee.username}")
-        
-        print(f"📊 Toplam {mail_sent_count} mail gönderildi")
-        return mail_sent_count > 0
-    except Exception as e:
-        print(f"❌ Genel mail gönderme hatası: {e}")
-        import traceback
-        traceback.print_exc()
         return False
 
 # Yedekleme sistemi routes
@@ -1735,9 +1439,6 @@ def delete_task(task_id):
         # Görev başlığını flash mesajı için sakla
         task_title = task.title
         
-        # Capture assignees for notification
-        assignees_to_notify = list(task.assignees)
-        
         # İlişkili yorumları sil
         Comment.query.filter_by(task_id=task_id).delete()
         
@@ -1749,81 +1450,12 @@ def delete_task(task_id):
         db.session.commit()
         
         flash(f'Görev "{task_title}" başarıyla silindi!')
-
-        # OneSignal Notification for Deletion
-        try:
-            filters = []
-            for assignee in assignees_to_notify:
-                if assignee.id != current_user.id:
-                    filters.append({"field": "tag", "key": "username", "relation": "=", "value": assignee.username})
-                    filters.append({"operator": "OR"})
-            
-            if filters:
-                filters.pop() # Remove last OR
-                
-                send_onesignal_notification(
-                    headings={"en": "Görev Silindi", "tr": "Görev Silindi"},
-                    contents={"en": f"{current_user.username} '{task_title}' görevini sildi.", "tr": f"{current_user.username} '{task_title}' görevini sildi."},
-                    filters=filters
-                )
-        except Exception as e:
-            print(f"OneSignal Error: {e}")
         
     except Exception as e:
         db.session.rollback()
         flash(f'Görev silinirken hata oluştu: {str(e)}')
     
     return redirect(url_for('index'))
-
-# Dosya indirme
-@app.route('/download_attachment/<int:attachment_id>')
-@login_required
-def download_attachment(attachment_id):
-    attachment = TaskAttachment.query.get_or_404(attachment_id)
-    task = Task.query.get(attachment.task_id)
-    
-    # Yetki kontrolü - görev oluşturan, atananlar veya admin görebilir
-    if (current_user.role != 'admin' and 
-        task.created_by != current_user.id and 
-        current_user not in task.assignees):
-        flash('Bu dosyayı indirme yetkiniz yok!')
-        return redirect(url_for('index'))
-    
-    try:
-        return send_from_directory(
-            directory=os.path.dirname(attachment.file_path),
-            path=os.path.basename(attachment.file_path),
-            as_attachment=True,
-            download_name=attachment.original_filename
-        )
-    except Exception as e:
-        flash(f'Dosya indirme hatası: {str(e)}')
-        return redirect(url_for('task_detail', task_id=task.id))
-
-# Dosya silme
-@app.route('/delete_attachment/<int:attachment_id>', methods=['POST'])
-@login_required
-def delete_attachment(attachment_id):
-    attachment = TaskAttachment.query.get_or_404(attachment_id)
-    task_id = attachment.task_id
-    
-    # Yetki kontrolü - dosyayı yükleyen veya admin silebilir
-    if current_user.id != attachment.uploaded_by and current_user.role != 'admin':
-        return jsonify({'success': False, 'message': 'Bu dosyayı silme yetkiniz yok!'})
-    
-    try:
-        # Fiziksel dosyayı sil
-        if os.path.exists(attachment.file_path):
-            os.remove(attachment.file_path)
-        
-        # Veritabanından sil
-        db.session.delete(attachment)
-        db.session.commit()
-        
-        return jsonify({'success': True, 'message': 'Dosya başarıyla silindi!'})
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'success': False, 'message': f'Dosya silinirken hata oluştu: {str(e)}'})
 
 # Görev tamamlama
 @app.route('/complete_task/<int:task_id>', methods=['POST'])
@@ -1843,41 +1475,6 @@ def complete_task(task_id):
         db.session.commit()
         
         flash(f'Görev "{task.title}" tamamlandı olarak işaretlendi!')
-
-        # SocketIO Notification for Completion
-        try:
-            completion_data = {
-                'task_id': task.id,
-                'title': task.title,
-                'completed_by': current_user.username,
-                'completed_at': format_date_time(datetime.utcnow()),
-                'status': 'completed'
-            }
-            
-            # Notify Creator
-            socketio.emit('task_completed', completion_data, room=f"user_{task.created_by}")
-            
-            # Notify Assignees
-            for assignee in task.assignees:
-                socketio.emit('task_completed', completion_data, room=f"user_{assignee.id}")
-                
-            # Notify Admins
-            socketio.emit('task_completed', completion_data, room='admin')
-            
-        except Exception as socket_error:
-            print(f"⚠️ Socket completion notification error: {socket_error}")
-
-        # OneSignal Notification to Creator
-        try:
-            creator = User.query.get(task.created_by)
-            if creator and creator.id != current_user.id:
-                send_onesignal_notification(
-                    headings={"en": "Görev Tamamlandı", "tr": "Görev Tamamlandı"},
-                    contents={"en": f"{current_user.username} '{task.title}' görevini tamamladı.", "tr": f"{current_user.username} '{task.title}' görevini tamamladı."},
-                    filters=[{"field": "tag", "key": "username", "relation": "=", "value": creator.username}]
-                )
-        except Exception as e:
-            print(f"OneSignal Error: {e}")
         
     except Exception as e:
         db.session.rollback()
@@ -2361,182 +1958,67 @@ def api_reports_notifications():
         'new_comments': new_comments
     })
 
-# SocketIO Connection Handler
-@socketio.on('connect')
-def handle_connect():
-    if current_user.is_authenticated:
-        join_room(f"user_{current_user.id}")
-        if current_user.role == 'admin':
-            join_room('admin')
-        print(f"🔌 Socket connected: {current_user.username} (Room: user_{current_user.id})")
-
 # =============================================================================
-# WebAuthn Configuration
-if os.environ.get('FLASK_ENV') == 'production':
-    RP_ID = os.environ.get('WEBAUTHN_RP_ID', 'tasken.com.tr')
-    ORIGIN = os.environ.get('WEBAUTHN_ORIGIN', 'https://tasken.com.tr')
-else:
-    RP_ID = 'localhost'
-    ORIGIN = 'http://localhost:5000'
-
-RP_NAME = 'Helmex Tasks'
-
-# --- WEBAUTHN REGISTRATION ---
-
-@app.route('/webauthn/register/begin', methods=['POST'])
-@login_required
-def register_begin():
-    # Dynamic RP_ID and ORIGIN
-    rp_id = request.host.split(':')[0]
-    origin = f"{request.scheme}://{request.host}"
+if __name__ == '__main__':
+    import os
+    import time
+    import sys
     
-    # 1. Check if user already has credentials to prevent re-registration of same authenticator
-    user_credentials = Credential.query.filter_by(user_id=current_user.id).all()
+    # Memory usage monitoring  
+    def print_memory_usage():
+        """Memory kullanımını yazdır"""
+        try:
+            import psutil
+            process = psutil.Process()
+            memory_mb = process.memory_info().rss / 1024 / 1024
+            print(f"🧠 Memory usage: {memory_mb:.1f} MB")
+        except ImportError:
+            print("📊 psutil not available for memory monitoring")
     
-    exclude_credentials = []
-    for cred in user_credentials:
-        exclude_credentials.append(
-            PublicKeyCredentialDescriptor(id=cred.credential_id)
-        )
-
-    # 2. Generate options
-    options = generate_registration_options(
-        rp_id=rp_id,
-        rp_name=RP_NAME,
-        user_id=str(current_user.id).encode(),  # Must be bytes
-        user_name=current_user.username,
-        user_display_name=current_user.username,
-        authenticator_selection=AuthenticatorSelectionCriteria(
-            user_verification=UserVerificationRequirement.PREFERRED,
-            resident_key=ResidentKeyRequirement.PREFERRED,
-        ),
-        exclude_credentials=exclude_credentials,
-    )
-
-    # 3. Store challenge in session to verify later
-    session['current_registration_challenge'] = options.challenge
-
-    return options_to_json(options)
-
-@app.route('/webauthn/register/complete', methods=['POST'])
-@login_required
-def register_complete():
-    data = request.get_json()
+    print_memory_usage()
     
-    # Dynamic RP_ID and ORIGIN
-    rp_id = request.host.split(':')[0]
-    origin = f"{request.scheme}://{request.host}"
+    # Database bağlantısını retry ile dene
+    max_retries = 5
+    retry_delay = 2
     
-    # 1. Retrieve challenge from session
-    challenge = session.get('current_registration_challenge')
-    if not challenge:
-        return jsonify({"status": "failed", "message": "Challenge not found"}), 400
-
-    try:
-        # 2. Verify the response
-        verification = verify_registration_response(
-            credential=RegistrationCredential.parse_obj(data),
-            expected_challenge=challenge,
-            expected_origin=origin,
-            expected_rp_id=rp_id,
-        )
-
-        # 3. Save credential to database
-        new_credential = Credential(
-            user_id=current_user.id,
-            credential_id=verification.credential_id,
-            public_key=verification.credential_public_key,
-            sign_count=verification.sign_count,
-            transports=json.dumps(data.get('response', {}).get('transports', []))
-        )
-        
-        db.session.add(new_credential)
-        db.session.commit()
-        
-        return jsonify({"status": "success", "message": "Biyometrik giriş başarıyla kaydedildi!"})
-        
-    except Exception as e:
-        print(f"WebAuthn Register Error: {e}")
-        return jsonify({"status": "failed", "message": str(e)}), 400
-
-# --- WEBAUTHN LOGIN ---
-
-@app.route('/webauthn/login/begin', methods=['POST'])
-def login_begin():
-    # Dynamic RP_ID and ORIGIN
-    rp_id = request.host.split(':')[0]
+    for attempt in range(max_retries):
+        try:
+            with app.app_context():
+                # Database bağlantısını test et
+                from sqlalchemy import text
+                result = db.session.execute(text('SELECT 1'))
+                print(f"✅ Database bağlantısı başarılı (attempt {attempt + 1})")
+                
+                # Tabloları oluştur
+                db.create_all()
+                print("✅ Tablolar oluşturuldu/güncellendi")
+                
+                # Admin kullanıcı oluştur
+                create_admin_user()
+                print("✅ Admin kullanıcı kontrolü tamamlandı")
+                
+                break  # Başarılı, döngüden çık
+                
+        except Exception as e:
+            print(f"❌ Database bağlantı hatası (attempt {attempt + 1}/{max_retries}): {e}")
+            
+            if attempt < max_retries - 1:
+                print(f"⏳ {retry_delay} saniye bekleyip tekrar denenecek...")
+                time.sleep(retry_delay)
+                retry_delay *= 2  # Exponential backoff
+            else:
+                print("💥 Maximum retry sayısına ulaşıldı. SQLite fallback kullanılacak.")
+                # SQLite fallback
+                app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///todo_company.db'
+                with app.app_context():
+                    db.create_all()
+                    create_admin_user()
+                break
     
-    username = request.json.get('username')
-    user = User.query.filter_by(username=username).first()
+    # Production için port'u environment variable'dan al
+    port = int(os.environ.get('PORT', 5004))
+    debug = os.environ.get('FLASK_ENV') != 'production'
     
-    if not user:
-        return jsonify({"status": "failed", "message": "Kullanıcı bulunamadı"}), 404
-
-    # Get user's credentials
-    user_credentials = Credential.query.filter_by(user_id=user.id).all()
-    
-    if not user_credentials:
-        return jsonify({"status": "failed", "message": "Bu kullanıcı için biyometrik giriş tanımlanmamış"}), 400
-
-    allow_credentials = []
-    for cred in user_credentials:
-        allow_credentials.append(
-            PublicKeyCredentialDescriptor(id=cred.credential_id)
-        )
-
-    options = generate_authentication_options(
-        rp_id=rp_id,
-        allow_credentials=allow_credentials,
-        user_verification=UserVerificationRequirement.PREFERRED,
-    )
-
-    session['current_authentication_challenge'] = options.challenge
-    session['webauthn_login_user_id'] = user.id # Store who is trying to login
-
-    return options_to_json(options)
-
-@app.route('/webauthn/login/complete', methods=['POST'])
-def login_complete():
-    data = request.get_json()
-    
-    # Dynamic RP_ID and ORIGIN
-    rp_id = request.host.split(':')[0]
-    origin = f"{request.scheme}://{request.host}"
-    
-    challenge = session.get('current_authentication_challenge')
-    user_id = session.get('webauthn_login_user_id')
-    
-    if not challenge or not user_id:
-        return jsonify({"status": "failed", "message": "Oturum zaman aşımı"}), 400
-
-    user = User.query.get(user_id)
-    # Find the specific credential used
-    credential_id_bytes = base64url_to_bytes(data['id'])
-    credential = Credential.query.filter_by(credential_id=credential_id_bytes).first()
-
-    if not credential:
-        return jsonify({"status": "failed", "message": "Kimlik bilgisi bulunamadı"}), 400
-
-    try:
-        verification = verify_authentication_response(
-            credential=AuthenticationCredential.parse_obj(data),
-            expected_challenge=challenge,
-            expected_origin=origin,
-            expected_rp_id=rp_id,
-            credential_public_key=credential.public_key,
-            credential_current_sign_count=credential.sign_count,
-        )
-
-        # Update counter
-        credential.sign_count = verification.new_sign_count
-        credential.last_used_at = datetime.utcnow()
-        db.session.commit()
-
-        # Log the user in via Flask-Login
-        login_user(user, remember=True)
-        
-        return jsonify({"status": "success", "url": url_for('index')})
-        
-    except Exception as e:
-        print(f"WebAuthn Login Error: {e}")
-        return jsonify({"status": "failed", "message": str(e)}), 400
+    print(f"🚀 Flask app başlatılıyor - Port: {port}, Debug: {debug}")
+    print_memory_usage()  # Memory kullanımını başlangıçta da göster
+    app.run(debug=debug, host='0.0.0.0', port=port)

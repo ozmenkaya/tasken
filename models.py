@@ -98,6 +98,25 @@ class Task(db.Model):
             }
         return {'is_read': False}
 
+class TaskAttachment(db.Model):
+    __tablename__ = 'task_attachments'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    filename = db.Column(db.String(500), nullable=False)
+    original_filename = db.Column(db.String(500), nullable=False)
+    file_path = db.Column(db.String(1000), nullable=False)
+    file_size = db.Column(db.Integer)  # Bytes
+    mime_type = db.Column(db.String(100))
+    uploaded_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    # Foreign Keys
+    task_id = db.Column(db.Integer, db.ForeignKey('task.id'), nullable=False)
+    uploaded_by = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    
+    # İlişkiler
+    task = db.relationship('Task', backref=db.backref('attachments', cascade='all, delete-orphan'))
+    uploader = db.relationship('User', backref='uploaded_attachments')
+
 class Comment(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     content = db.Column(db.Text, nullable=False)

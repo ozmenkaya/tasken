@@ -71,6 +71,39 @@
                 </div>
                 {% endif %}
                 
+                <!-- Ekli Dosyalar -->
+                {% if task.attachments %}
+                <div class="mb-3">
+                    <strong><i class="fas fa-paperclip"></i> Ekli Dosyalar ({{ task.attachments|length }}):</strong>
+                    <div class="list-group mt-2">
+                        {% for attachment in task.attachments %}
+                        <div class="list-group-item d-flex justify-content-between align-items-center">
+                            <div>
+                                <i class="fas fa-file me-2"></i>
+                                <strong>{{ attachment.original_filename }}</strong>
+                                <br>
+                                <small class="text-muted">
+                                    {{ (attachment.file_size / 1024)|round(2) }} KB - 
+                                    {{ attachment.uploaded_at|format_datetime }} - 
+                                    Yükleyen: {{ attachment.uploader.username }}
+                                </small>
+                            </div>
+                            <div>
+                                <a href="{{ url_for('download_attachment', attachment_id=attachment.id) }}" class="btn btn-sm btn-primary" download>
+                                    <i class="fas fa-download"></i> İndir
+                                </a>
+                                {% if current_user.id == attachment.uploaded_by or current_user.role == 'admin' %}
+                                <button type="button" class="btn btn-sm btn-danger" onclick="deleteAttachment({{ attachment.id }}, '{{ attachment.original_filename }}')">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                                {% endif %}
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+                
                 <!-- Durum Güncelleme -->
                 {% if current_user.role in ['admin', 'manager'] or current_user in task.assignees %}
                 <div class="mt-4">
@@ -311,6 +344,27 @@ function confirmDelete(taskId, taskTitle) {
         form.action = `/delete_task/${taskId}`;
         document.body.appendChild(form);
         form.submit();
+    }
+}
+
+// Dosya silme onayı
+function deleteAttachment(attachmentId, filename) {
+    if (confirm(`"${filename}" dosyasını silmek istediğinizden emin misiniz?\n\nBu işlem geri alınamaz!`)) {
+        // AJAX ile silme işlemi
+        $.ajax({
+            url: `/delete_attachment/${attachmentId}`,
+            type: 'POST',
+            success: function(result) {
+                if (result.success) {
+                    location.reload();
+                } else {
+                    alert('Dosya silinirken hata oluştu: ' + result.message);
+                }
+            },
+            error: function(xhr, status, error) {
+                alert('Dosya silinirken bir hata oluştu. Lütfen tekrar deneyin.');
+            }
+        });
     }
 }
 

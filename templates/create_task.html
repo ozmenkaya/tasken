@@ -10,7 +10,7 @@
                 <h4><i class="fas fa-plus"></i> Yeni Görev Oluştur</h4>
             </div>
             <div class="card-body">
-                <form method="POST">
+                <form method="POST" enctype="multipart/form-data">
                     <div class="mb-3">
                         <label for="title" class="form-label">Görev Başlığı *</label>
                         <input type="text" class="form-control" id="title" name="title" required>
@@ -19,6 +19,18 @@
                     <div class="mb-3">
                         <label for="description" class="form-label">Açıklama</label>
                         <textarea class="form-control" id="description" name="description" rows="6"></textarea>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="attachments" class="form-label">
+                            <i class="fas fa-paperclip"></i> Dosya Ekle
+                        </label>
+                        <input type="file" class="form-control" id="attachments" name="attachments" multiple>
+                        <small class="form-text text-muted">
+                            <i class="fas fa-info-circle"></i> 
+                            Birden fazla dosya seçebilirsiniz. İzin verilen türler: PDF, Word, Excel, PowerPoint, Resim (JPG, PNG), Arşiv (ZIP, RAR). Maksimum dosya boyutu: 16MB
+                        </small>
+                        <div id="file-preview" class="mt-2"></div>
                     </div>
                     
                     <div class="row">
@@ -96,6 +108,47 @@ $(document).ready(function() {
     // Bugünün tarihini minimum tarih olarak ayarla
     const today = new Date().toISOString().split('T')[0];
     $('#due_date').attr('min', today);
+    
+    // Dosya seçimi önizleme
+    $('#attachments').on('change', function() {
+        const files = this.files;
+        const preview = $('#file-preview');
+        preview.empty();
+        
+        if (files.length > 0) {
+            const fileList = $('<div class="alert alert-info"><strong>Seçilen Dosyalar:</strong><ul class="mb-0 mt-2"></ul></div>');
+            const ul = fileList.find('ul');
+            
+            Array.from(files).forEach(file => {
+                const fileSize = (file.size / 1024).toFixed(2); // KB
+                const icon = getFileIcon(file.name);
+                ul.append(`<li><i class="${icon}"></i> ${file.name} (${fileSize} KB)</li>`);
+            });
+            
+            preview.append(fileList);
+        }
+    });
+    
+    function getFileIcon(filename) {
+        const ext = filename.split('.').pop().toLowerCase();
+        const icons = {
+            'pdf': 'fas fa-file-pdf text-danger',
+            'doc': 'fas fa-file-word text-primary',
+            'docx': 'fas fa-file-word text-primary',
+            'xls': 'fas fa-file-excel text-success',
+            'xlsx': 'fas fa-file-excel text-success',
+            'ppt': 'fas fa-file-powerpoint text-warning',
+            'pptx': 'fas fa-file-powerpoint text-warning',
+            'jpg': 'fas fa-file-image text-info',
+            'jpeg': 'fas fa-file-image text-info',
+            'png': 'fas fa-file-image text-info',
+            'gif': 'fas fa-file-image text-info',
+            'zip': 'fas fa-file-archive text-secondary',
+            'rar': 'fas fa-file-archive text-secondary',
+            'txt': 'fas fa-file-alt text-muted'
+        };
+        return icons[ext] || 'fas fa-file';
+    }
     
     // Summernote zengin metin editörünü başlat
     $('#description').summernote({
